@@ -1,11 +1,4 @@
-#' Sigmoid Function
-#'
-#' @param x Real number.
-#'
-#' @return Number between 0 and 1.
-#' @export
-#'
-#' @examples
+
 sigmoid = function(x){
   1 / (1 + exp(-x))
 }
@@ -53,42 +46,14 @@ spectral.clustering <- function(W, n_eig = 2, zeta = 0) {
   return(cl)
 }
 
-#' Aitchison Variation
-#'
-#' @param x Matrix of relative abundances of compositional covariates (n sample proportions of p compositional components).
-#'
-#' @return Pairwise correlation matrix where each cell (j, k) is the Aitchison variation between the jth and kth columns of x.
-#' @export
-#'
-#' @examples
+AitchVar = function(x, y){
+  stats::var(log(x) - log(y))
+}
+AitchVarVec = Vectorize(AitchVar)
 getAitchisonVar = function(x){
-  p = ncol(x)
-  A <- matrix(0, p, p)
-  for (j in 1:p){
-    for (k in 1:p){
-      if (k == j){
-        next
-      }
-      else{
-        A[j,k] <- stats::var(log(x[,j])-log(x[,k])) # Aitchison variation
-      }
-    }
-  }
-  return(A)
+  outer(X = x, Y = x, FUN = AitchVarVec)
 }
 
-#' Feature Scores
-#'
-#' @param x Matrix of relative abundances of compositional covariates (n sample proportions of p compositional components).
-#' @param y Response vector (with length n).
-#' @param screen.method "correlation" or "wald".
-#' @param response.type "survival", "continuous", or "binary" -- survival is not yet implemented.
-#' @param s0.perc Factor for denominator of score statistic, between 0 and 1: the percentile of standard deviation values added to the denominator. Default is 0.
-#'
-#' @return
-#' @export
-#'
-#' @examples
 getFeatureScores = function(x, y, screen.method, response.type, s0.perc){
   n = length(y)
 
@@ -146,8 +111,6 @@ getFeatureScores = function(x, y, screen.method, response.type, s0.perc){
 #' @param threshold Nonnegative constant between 0 and 1. If NULL, then no variable screening is performed.
 #' @param s0.perc Factor for denominator of score statistic, between 0 and 1: the percentile of standard deviation values added to the denominator. Default is 0.
 #' @param zeta Small number used to perturb the network by adding some links with low edge weights in the calculation of the Normalized Laplacian.
-#' @param x.unlabeled Matrix of relative abundances of compositional covariates for observations with unobserved response.
-#' @param use.unlabeled Logical flag indicating whether to use the unlabeled data in clustering.
 #' @param positive.slope Logical flag indicating whether to define the balance such that its corresponding parameter estimate is positive.
 #'
 #' @return
@@ -163,12 +126,12 @@ slr = function(
     threshold,
     s0.perc=0,
     zeta=0,
-    x.unlabeled = NULL, use.unlabeled = FALSE,
     positive.slope = FALSE
 ){
   this.call <- match.call()
   screen.method <- match.arg(screen.method)
   response.type <- match.arg(response.type)
+  if(!("data.frame" %in% class(x))) x = data.frame(x)
 
   n <- length(y)
 
@@ -185,21 +148,8 @@ slr = function(
     object <- list(sbp=NULL, Aitchison.var = NULL, cluster.mat = NULL)
   } else {
     x.reduced <- x[,which.features] # reduced data matrix
-    if(use.unlabeled){
-      if(is.null(x.unlabeled)){
-        stop("use.unlabeled is TRUE but x.unlabeled is missing!!")
-      }
-      if(!all.equal(colnames(x), colnames(x.unlabeled))){
-        stop("x and x.unlabeled don't have the same components/covariates/columns! cannot use the unlabeled data.")
-      }
-      all.x = rbind(x, x.unlabeled)
-      all.x.reduced <- all.x[,which.features]
-      Aitchison.var = getAitchisonVar(all.x.reduced)
-      rownames(Aitchison.var) <- colnames(Aitchison.var) <- colnames(all.x.reduced)
-    } else{
-      Aitchison.var = getAitchisonVar(x.reduced)
-      rownames(Aitchison.var) <- colnames(Aitchison.var) <- colnames(x.reduced)
-    }
+    Aitchison.var = getAitchisonVar(x.reduced)
+    rownames(Aitchison.var) <- colnames(Aitchison.var) <- colnames(x.reduced)
     if(cluster.method == "spectral" | nrow(Aitchison.var) == 2){
       Aitchison.sim <- max(Aitchison.var) - Aitchison.var
       ## Perform spectral clustering
@@ -286,7 +236,6 @@ predict.slr <- function(
   }
 }
 
-
 buildPredmat <- function(
     outlist,threshold,x,y,foldid,response.type,type.measure
 ){
@@ -355,15 +304,11 @@ getOptcv <- function(threshold, cvm, cvsd){
 #' @param threshold Nonnegative constant between 0 and 1. If NULL, then no variable screening is performed.
 #' @param s0.perc Factor for denominator of score statistic, between 0 and 1: the percentile of standard deviation values added to the denominator. Default is 0.
 #' @param zeta Small number used to perturb the network by adding some links with low edge weights in the calculation of the Normalized Laplacian.
-#' @param x.unlabeled Matrix of relative abundances of compositional covariates for observations with unobserved response.
-#' @param use.unlabeled Logical flag indicating whether to use the unlabeled data in clustering.
 #' @param type.measure
 #' @param scale
 #' @param nfolds
 #' @param foldid
 #' @param weights
-#' @param fold.unlabeled
-#' @param foldid.unlabeled
 #' @param trace.it
 #'
 #' @return
@@ -388,7 +333,6 @@ cv.slr <- function(
   type.measure = match.arg(type.measure)
   N <- nrow(x)
   p <- ncol(x)
-  N2 = nrow(x.unlabeled)
 
   if (is.null(weights)){
     weights = rep(1, nfolds)
@@ -411,15 +355,6 @@ cv.slr <- function(
   if (nfolds < 3){
     stop("nfolds must be bigger than 3; nfolds=10 recommended")
   }
-  if(fold.unlabeled & is.null(foldid.unlabeled)){
-    if(is.null(x.unlabeled)){
-      stop("fold.unlabeled is TRUE but x.unlabeled is missing!!")
-    }
-    if(nfolds > N2){
-      stop("nfolds is greater than the number of samples in x.unlabeled! cannot divide into folds.")
-    }
-    foldid.unlabeled = sample(rep(seq(nfolds), length = N2))
-  }
 
   if (trace.it){
     cat("Training\n")
@@ -434,26 +369,13 @@ cv.slr <- function(
     # x_in <- x[which.fold.i, ,drop=FALSE]
     x_sub <- x[!which.fold.i, ,drop=FALSE]
     y_sub <- y[!which.fold.i]
-    if(use.unlabeled){
-      if(is.null(x.unlabeled)){
-        stop("use.unlabeled is TRUE but x.unlabeled is missing!!")
-      }
-      if(fold.unlabeled){
-        which.fold.i.unlabeled = foldid.unlabeled == i
-        x.unlab_sub = x.unlabeled[!which.fold.i.unlabeled, ,drop=FALSE]
-      } else{
-        x.unlab_sub = x.unlabeled
-      }
-    } else{
-      x.unlab_sub = NULL
-    }
+    x.unlab_sub = NULL
     outlist[[i]] <- lapply(threshold, function(l) slr(
       x = x_sub, y = y_sub,
       screen.method = screen.method, cluster.method = cluster.method,
       response.type = response.type,
       threshold = l,
-      s0.perc = s0.perc, zeta = zeta,
-      x.unlabeled = x.unlab_sub, use.unlabeled = use.unlabeled))
+      s0.perc = s0.perc, zeta = zeta))
   }
 
   # collect all out-of-sample predicted values
@@ -478,27 +400,6 @@ cv.slr <- function(
   class(obj) = "cv.slr"
   obj
 }
-
-# slr.fromSBP <- function(x, y){
-#
-#   if(!identical(colnames(x), rownames(y))){
-#
-#     stop("Component names for data matrix and balance matrix do not match.")
-#   }
-#
-#   x <- as.matrix(x)
-#
-#   if(any(x == 0)){
-#
-#     message("Alert: Replacing 0s with next smallest value to calculate balances.")
-#     zeros <- x == 0
-#     x[zeros] <- min(x[!zeros])
-#   }
-#
-#   res <- apply(y, 2, function(z) slr.fromContrast(x, z))
-#   rownames(res) <- as.character(1:nrow(res))
-#   return(res)
-# }
 
 #' Supervised Log-Ratios Microbial Signature
 #'
