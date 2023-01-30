@@ -35,7 +35,8 @@ spectral.clustering <- function(W, n_eig = 2, zeta = 0) {
   # we will use k-means to cluster the eigenvectors corresponding to
   # the leading smallest eigenvalues
   ei$vectors <- ei$vectors[,base::order(abs(ei$values),decreasing=TRUE)]
-  obj <- kmeans(ei$vectors[, 1:n_eig], centers = n_eig, nstart = 100, algorithm = "Lloyd")
+  obj <- stats::kmeans(
+    ei$vectors[, 1:n_eig], centers = n_eig, nstart = 100, algorithm = "Lloyd")
   if (n_eig==2){
     cl <- 2*(obj$cluster - 1) - 1
   } else {
@@ -70,11 +71,11 @@ getFeatureScores = function(x, y, screen.method, response.type, s0.perc){
       sd <- sqrt((syy/sxx - numer^2)/(n - 2)) # variance estimate
 
       if (is.null(s0.perc)) {
-        fudge <- median(sd)
+        fudge <- stats::median(sd)
       }
       if (!is.null(s0.perc)) {
         if (s0.perc >= 0) {
-          fudge <- quantile(sd, s0.perc)
+          fudge <- stats::quantile(sd, s0.perc)
         }
         if (s0.perc < 0) {
           fudge <- 0
@@ -87,15 +88,15 @@ getFeatureScores = function(x, y, screen.method, response.type, s0.perc){
     } else if (response.type=='binary'){
       fs <- rep(0,ncol(xclr.centered))
       for (j in 1:ncol(xclr.centered)){
-        fit <- glm(y~x,data=data.frame(
-          x=xclr.centered[,j],y=as.factor(y)),family=binomial(link='logit'))
-        fs[j] <- coef(summary(fit))[2,3]
+        fit <- stats::glm(y~x,data=data.frame(
+          x=xclr.centered[,j],y=as.factor(y)),family=stats::binomial(link='logit'))
+        fs[j] <- stats::coef(summary(fit))[2,3]
       }
       fs <- stats::pnorm(abs(fs))
     }
   }
   if (screen.method=='correlation'){
-    fs <- cor(t(xclr),y)
+    fs <- stats::cor(t(xclr),y)
   }
   return(fs)
 }
@@ -113,7 +114,7 @@ getFeatureScores = function(x, y, screen.method, response.type, s0.perc){
 #' @param zeta Small number used to perturb the network by adding some links with low edge weights in the calculation of the Normalized Laplacian.
 #' @param positive.slope Logical flag indicating whether to define the balance such that its corresponding parameter estimate is positive.
 #'
-#' @return
+#' @return slr object
 #' @export
 #'
 #' @examples
@@ -140,10 +141,10 @@ slr = function(
   if (sum(which.features)<2){
     # Fit an intercept only regression model
     if (response.type=='binary'){
-      model.train <- glm(y~.,data=data.frame(
-        y=as.factor(y)),family=binomial(link='logit'))
+      model.train <- stats::glm(y~.,data=data.frame(
+        y=as.factor(y)),family=stats::binomial(link='logit'))
     } else if (response.type=='continuous'){
-      model.train <- lm(y~.,data=data.frame(y=y))
+      model.train <- stats::lm(y~.,data=data.frame(y=y))
     }
     object <- list(sbp=NULL, Aitchison.var = NULL, cluster.mat = NULL)
   } else {
@@ -157,7 +158,7 @@ slr = function(
       cluster.mat = Aitchison.sim
     } else if(cluster.method == "hierarchical"){
       ## Perform hierarchical clustering
-      htree.est <- hclust(dist(Aitchison.var))
+      htree.est <- stats::hclust(stats::dist(Aitchison.var))
       sbp.est <- balance::sbp.fromHclust(htree.est)[, 1] # grab 1st partition
       cluster.mat = Aitchison.var
     } else{
@@ -166,26 +167,26 @@ slr = function(
     balance <- slr.fromContrast(x.reduced, sbp.est) # predict from labeled data
     # model fitting
     if (response.type=='binary'){
-      model.train <- glm(
+      model.train <- stats::glm(
         y~balance,data=data.frame(balance=balance,y=as.factor(y)),
-        family=binomial(link='logit'))
+        family=stats::binomial(link='logit'))
       if(positive.slope){
-        if(coefficients(model.train)[2] < 0){
+        if(stats::coef(model.train)[2] < 0){
           sbp.est = -sbp.est
           balance <- slr.fromContrast(x.reduced, sbp.est)
-          model.train <- glm(
+          model.train <- stats::glm(
             y~balance,data=data.frame(balance=balance,y=as.factor(y)),
-            family=binomial(link='logit'))
+            family=stats::binomial(link='logit'))
         }
       }
     } else if (response.type=='continuous'){
-      model.train <- lm(
+      model.train <- stats::lm(
         y~balance,data=data.frame(balance=balance,y=y))
       if(positive.slope){
-        if(coefficients(model.train)[2] < 0){
+        if(stats::coef(model.train)[2] < 0){
           sbp.est = -sbp.est
           balance <- slr.fromContrast(x.reduced, sbp.est)
-          model.train <- lm(
+          model.train <- stats::lm(
             y~balance,data=data.frame(balance=balance,y=y))
         }
       }
@@ -194,25 +195,14 @@ slr = function(
       sbp = sbp.est, Aitchison.var = Aitchison.var, cluster.mat = cluster.mat)
   }
   object$feature.scores <- feature.scores
-  object$theta <- as.numeric(coefficients(model.train))
+  object$theta <- as.numeric(stats::coef(model.train))
   object$fit <- model.train
 
   class(object) <- 'slr'
   return(object)
 }
 
-
-#' Predict from a Supervised Log-Ratios Model
-#'
-#' @param object An object output by slr.
-#' @param newdata Matrix of relative abundances of compositional covariates.
-#' @param response.type Type of response variable: could be "survival", "continuous", or "binary". Currently only continuous and binary responses are allowed.
-#'
-#' @return Predicted response.
-#' @export
-#'
-#' @examples
-predict.slr <- function(
+slr.predict <- function(
     object, newdata = NULL, response.type=c('survival','continuous','binary')
 ){
   # prediction will be based on the canonical space
@@ -225,7 +215,7 @@ predict.slr <- function(
       newdata.reduced <- newdata[,colnames(newdata) %in% names(object$sbp)]
       new.balance <- slr.fromContrast(newdata.reduced,object$sbp)
       if (response.type=='binary'){
-        fitted.results <- predict(
+        fitted.results <- stats::predict(
           object$fit,newdata=data.frame(balance=new.balance),type='response')
         predictor = fitted.results
       } else if (response.type=='continuous'){
@@ -247,7 +237,7 @@ buildPredmat <- function(
     fitobj = outlist[[i]]
     x.i = x[which, , drop=FALSE]
     predy.i = sapply(
-      fitobj, function(a) predict.slr(
+      fitobj, function(a) slr.predict(
         a,newdata=x.i,response.type=response.type))
     for(j in 1:length(threshold)){
       predy.ij = predy.i[, j]
@@ -304,14 +294,13 @@ getOptcv <- function(threshold, cvm, cvsd){
 #' @param threshold Nonnegative constant between 0 and 1. If NULL, then no variable screening is performed.
 #' @param s0.perc Factor for denominator of score statistic, between 0 and 1: the percentile of standard deviation values added to the denominator. Default is 0.
 #' @param zeta Small number used to perturb the network by adding some links with low edge weights in the calculation of the Normalized Laplacian.
-#' @param type.measure
-#' @param scale
-#' @param nfolds
-#' @param foldid
-#' @param weights
-#' @param trace.it
+#' @param type.measure Loss used for cross-validation
+#' @param nfolds Number of folds
+#' @param foldid An optional vector of values between 1 and nfold identifying which fold each observation is in
+#' @param weights Observation weights, default is 1
+#' @param trace.it If trace.it=TRUE, then progress bars are displayed
 #'
-#' @return
+#' @return cv.slr object
 #' @export
 #'
 #' @examples
@@ -321,13 +310,11 @@ cv.slr <- function(
     response.type=c('survival', 'continuous', 'binary'),
     threshold = NULL,
     s0.perc = 0, zeta = 0,
-    x.unlabeled = NULL, use.unlabeled = FALSE, #
     type.measure = c(
       "default", "mse", "deviance", "class", "auc", "mae", "C", "accuracy"
     ),
-    scale = FALSE, nfolds = 10,
+    nfolds = 10,
     foldid = NULL, weights = NULL, #
-    fold.unlabeled = FALSE, foldid.unlabeled = NULL, #
     trace.it = FALSE #
 ){
   type.measure = match.arg(type.measure)
@@ -384,7 +371,7 @@ cv.slr <- function(
     outlist, threshold, x, y, foldid, response.type = response.type,
     type.measure = type.measure)
 
-  cvm <- apply(predmat, 2, weighted.mean, w=weights, na.rm = TRUE)
+  cvm <- apply(predmat, 2, stats::weighted.mean, w=weights, na.rm = TRUE)
   cvsd = apply(predmat, 2, stats::sd, na.rm = TRUE) / sqrt(nfolds)
 
   out <- list(
