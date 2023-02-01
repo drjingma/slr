@@ -1,17 +1,21 @@
 Package: slr
-Title: Supervised Log-Ratios
+Title: Supervised Log Ratio 
 Version: 0.0.0.9000
 Authors@R: 
     person("Kristyn", "Pantoja", , "kristyn.pantoja@gmail.com", role = c("aut", "cre"),
            comment = c(ORCID = "YOUR-ORCID-ID"))
-Description: This package implements the supervised log-ratios method for efficiently fitting a sparse, interpretable balance regression model on compositional data, particularly microbiome data.
+Description: This package implements the supervised log ratio method for efficiently fitting a sparse balance regression model on compositional data.
 License: MIT + file LICENSE
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
-RoxygenNote: 7.1.2
+RoxygenNote: 7.2.1
 URL: https://github.com/kristynpantoja/slr
 BugReports: https://github.com/kristynpantoja/slr/issues
 Imports: 
-    balance,
     pROC,
     stats
+Suggests: 
+    knitr,
+    rmarkdown,
+    BiocStyle
+VignetteBuilder: knitr

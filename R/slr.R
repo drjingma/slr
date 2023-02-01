@@ -1,65 +1,8 @@
-
-sigmoid = function(x){
-  1 / (1 + exp(-x))
-}
-
-graph.laplacian <- function(W, normalized = TRUE, zeta=0.01){
-  stopifnot(nrow(W) == ncol(W))
-
-  n = nrow(W)    # number of vertices
-  # We perturb the network by adding some links with low edge weights
-  W <- W + zeta * mean(colSums(W))/n * tcrossprod(rep(1,n))
-  g <- colSums(W) # degrees of vertices
-
-  if(normalized){
-    D_half = diag(1 / sqrt(g) )
-    return(D_half %*% W %*% D_half )
-  } else {
-    return(W)
-  }
-}
-
-#' Spectral Clustering
-#'
-#' @param W Similarity matrix.
-#' @param n_eig Number of clusters.
-#' @param zeta Small number used to perturb the network by adding some links with low edge weights in the calculation of the Normalized Laplacian.
-#'
-#' @return cluster assignments
-#' @export
-#'
-#' @examples
-spectral.clustering <- function(W, n_eig = 2, zeta = 0) {
-  L = graph.laplacian(W,zeta = zeta) # compute graph Laplacian
-  ei = eigen(L, symmetric = TRUE)    # Compute the eigenvectors and values of L
-  # we will use k-means to cluster the eigenvectors corresponding to
-  # the leading smallest eigenvalues
-  ei$vectors <- ei$vectors[,base::order(abs(ei$values),decreasing=TRUE)]
-  obj <- stats::kmeans(
-    ei$vectors[, 1:n_eig], centers = n_eig, nstart = 100, algorithm = "Lloyd")
-  if (n_eig==2){
-    cl <- 2*(obj$cluster - 1) - 1
-  } else {
-    cl <- obj$cluster
-  }
-  names(cl) <- rownames(W)
-  # return the cluster membership
-  return(cl)
-}
-
-AitchVar = function(x, y){
-  stats::var(log(x) - log(y))
-}
-AitchVarVec = Vectorize(AitchVar)
-getAitchisonVar = function(x){
-  outer(X = x, Y = x, FUN = AitchVarVec)
-}
-
-getFeatureScores = function(x, y, screen.method, response.type, s0.perc){
+getFeatureScores = function(X, y, screen.method, response.type, s0.perc){
   n = length(y)
 
   ## Compute univariate coefficient
-  xclr <- apply(x, 1, function(a) log(a) - mean(log(a)))
+  xclr <- apply(X, 1, function(a) log(a) - mean(log(a)))
   if (screen.method=='wald'){
     xclr.centered <- base::scale(t(xclr),center=TRUE,scale=TRUE)
     if (response.type=='continuous'){
@@ -83,6 +26,7 @@ getFeatureScores = function(x, y, screen.method, response.type, s0.perc){
       }
       # this is the wald-statistic
       fs <- numer/(sd + fudge)
+
       # t-distribution with n-2 df
       fs <- stats::pt(abs(fs), df = n-2)
     } else if (response.type=='binary'){
@@ -102,24 +46,79 @@ getFeatureScores = function(x, y, screen.method, response.type, s0.perc){
 }
 
 
-#' Supervised Log-Ratios
+#' Supervised Log Ratio
 #'
-#' @param x Matrix of relative abundances of compositional covariates (n sample proportions of p compositional components) for n observations with an observed response.
-#' @param y Response vector (with length n).
-#' @param screen.method Method of variable screening: could be correlation based ("correlation") or wald score based ("wald").
-#' @param cluster.method Method of clustering: "spectral" or "hierarchical".
-#' @param response.type Type of response variable: could be "survival", "continuous", or "binary". Currently only continuous and binary responses are allowed.
-#' @param threshold Nonnegative constant between 0 and 1. If NULL, then no variable screening is performed.
-#' @param s0.perc Factor for denominator of score statistic, between 0 and 1: the percentile of standard deviation values added to the denominator. Default is 0.
-#' @param zeta Small number used to perturb the network by adding some links with low edge weights in the calculation of the Normalized Laplacian.
-#' @param positive.slope Logical flag indicating whether to define the balance such that its corresponding parameter estimate is positive.
+#' @param X A sample by variable matrix of strictly positive relative abundances (\code{n} by \code{p}). This matrix should not contain any zeros. See details.
+#' @param y The response vector of length \code{n}.
+#' @param screen.method Method of variable screening: could be correlation based ("correlation") or wald score based ("wald"). Default is \code{wald}.
+#' @param cluster.method Method of clustering: "spectral" or "hierarchical". Default is \code{spectral}.
+#' @param response.type Type of the response variable: could be "continuous" or "binary".
+#' @param threshold A nonnegative constant between 0 and 1. If \code{NULL}, then no variable screening is performed.
+#' @param s0.perc The percentile of standard deviation values added to the denominator of the wald score statistic. Default is 0. See details.
+#' @param zeta A small positive value used to perturb the Aitchison similarity matrix when spectral clustering is used. Default is 0. See details.
+#' @param positive.slope Logical flag indicating whether to define the balance such that its corresponding slope estimate is positive. Default is \code{TRUE}.
 #'
-#' @return slr object
+#' @description \code{slr} fits a balance regression model in which the balance is defined by a sparse set of input variables.
+#'
+#' @details \code{slr} first uses a screening procedure to identify the active variables correlated with the response \code{y}.
+#' Essentially, it computes the univariate regression coefficients for centered log ratio transformed \code{X} and
+#' forms a reduced data matrix with variables whose univariate coefficients exceed a \code{threshold} in absolute value
+#' (the threshold is chosen via cross-validation). Then, it performs clustering of the active variables on a suitable dissimilarity
+#' derived from the reduced data matrix to get 2 clusters. Finally, \code{slr} uses the resulting balance to predict \code{y}.
+#'
+#' The design matrix \code{X} should not contain any zeros. In general, zeros in raw data should be imputed using a pseudocount or Bayesian method prior to applying \code{slr}.
+#'
+#' When the wald score statistic is used,
+#'
+#' When spectral clustering is used, it can be beneficial to perturb the Aitchison similarity matrix with a small positive value to improve the clustering performance. This leads to regularized spectral clustering.
+#' For more details on regularized spectral clustering of networks, see Amini et al. (13').
+#'
+#' @return An object of class \code{"slr"} is returned, which is a list with
+#'
+#' \item{bp}{The binary partition of selected variables. A positive value of 1 indicates the variable is in the numerator, while -1 indicates a denominator variable.}
+#' \item{Aitchison.var}{The Aitchison variation matrix for the selected variables.}
+#' \item{cluster.mat}{The matrix used in clustering selected variables into two groups. For spectral clustering, it corresponds to the Aitchison similarity matrix. For hierarchical clustering, this is the Aitchison variation matrix.}
+#' \item{feature.scores}{The feature scores for all variables.}
+#' \item{theta}{A vector of length 2 consisting of the intercept and slope when fitting the balance regression ordinary least squares.}
 #' @export
 #'
+#' @author Jing Ma and Kristyn Pantoja.
+#'
+#' Maintainer: Jing Ma (\url{jingma@fredhutch.org})
+#'
+#' @seealso \code{cv.slr}
+#'
+#' @references
+#' Amini, A. A., Chen, A., Bickel, P. J., & Levina, E. (2013). Pseudo-likelihood methods for community detection in large sparse networks. Annals of Statistics. 41(4): 2097-2122
+#'
 #' @examples
+#'# Set parameters ----
+#' set.seed(1)
+#' p <- 30    # number of variables
+#' n <- 100   # number of samples
+#' sigy <- 0.25   # noise level in regression
+#' sigx <- 0.25   # noise level in covariates
+#' r <- 2
+#' s <- 2
+#'
+#' # Generate x from a latent variable model ----
+#' U1 <- runif(n,-0.5,0.5)
+#' alpha1 <- 5*c(rep(1,r)/r,-rep(1,s)/s,rep(0,p-1-r-s)) # the first 4 variables define a balance
+#' Sigma <- diag(1,p-1)
+#' rownames(Sigma) <- colnames(Sigma) <- paste0('s',1:(p-1))
+#' xALR <- tcrossprod(as.matrix(U1), as.matrix(alpha1)) + mvtnorm::rmvnorm(n,mean=rep(0,p-1),sigma = Sigma) * sigx
+#' x <- alrinv(xALR)
+#' colnames(x) <- paste0('s',1:p)
+#'
+#' # Generate y from a latent variable model ----
+#' y <- U1 + rnorm(n) * sigy
+#'
+#' # Run slr ----
+#' fit <- slr(x,y,screen.method='wald',cluster.method ='hierarchical',response.type = 'continuous',threshold = 0.9)
+#' fit$bp
+
 slr = function(
-    x,
+    X,
     y,
     screen.method=c('correlation','wald'),
     cluster.method = c('spectral', 'hierarchical'),
@@ -132,11 +131,11 @@ slr = function(
   this.call <- match.call()
   screen.method <- match.arg(screen.method)
   response.type <- match.arg(response.type)
-  if(!("data.frame" %in% class(x))) x = data.frame(x)
+  if(!("data.frame" %in% class(X))) X = data.frame(X)
 
   n <- length(y)
 
-  feature.scores = getFeatureScores(x, y, screen.method, response.type, s0.perc)
+  feature.scores = getFeatureScores(X, y, screen.method, response.type, s0.perc)
   which.features <- (abs(feature.scores) >= threshold)
   if (sum(which.features)<2){
     # Fit an intercept only regression model
@@ -146,53 +145,49 @@ slr = function(
     } else if (response.type=='continuous'){
       model.train <- stats::lm(y~.,data=data.frame(y=y))
     }
-    object <- list(sbp=NULL, Aitchison.var = NULL, cluster.mat = NULL)
+    object <- list(bp=NULL, Aitchison.var = NULL, cluster.mat = NULL)
   } else {
-    x.reduced <- x[,which.features] # reduced data matrix
+    x.reduced <- X[,which.features] # reduced data matrix
     Aitchison.var = getAitchisonVar(x.reduced)
     rownames(Aitchison.var) <- colnames(Aitchison.var) <- colnames(x.reduced)
     if(cluster.method == "spectral" | nrow(Aitchison.var) == 2){
       Aitchison.sim <- max(Aitchison.var) - Aitchison.var
       ## Perform spectral clustering
-      sbp.est <- spectral.clustering(Aitchison.sim, zeta = zeta)
+      sbp.est <- spectral.clust(Aitchison.sim, k=2,zeta = zeta)
       cluster.mat = Aitchison.sim
     } else if(cluster.method == "hierarchical"){
       ## Perform hierarchical clustering
       htree.est <- stats::hclust(stats::dist(Aitchison.var))
-      sbp.est <- balance::sbp.fromHclust(htree.est)[, 1] # grab 1st partition
+      sbp.est <- sbp.fromHclust(htree.est)[, 1] # grab 1st partition
       cluster.mat = Aitchison.var
     } else{
       stop("invalid cluster.method arg was provided!!")
     }
-    balance <- slr.fromContrast(x.reduced, sbp.est) # predict from labeled data
+    balance <- balance.fromContrast(x.reduced, sbp.est) # predict from labeled data
     # model fitting
     if (response.type=='binary'){
-      model.train <- stats::glm(
-        y~balance,data=data.frame(balance=balance,y=as.factor(y)),
-        family=stats::binomial(link='logit'))
+      model.train <- stats::glm(y~balance,data=data.frame(balance=balance,y=as.factor(y)),
+                                family=stats::binomial(link='logit'))
       if(positive.slope){
         if(stats::coef(model.train)[2] < 0){
           sbp.est = -sbp.est
-          balance <- slr.fromContrast(x.reduced, sbp.est)
-          model.train <- stats::glm(
-            y~balance,data=data.frame(balance=balance,y=as.factor(y)),
-            family=stats::binomial(link='logit'))
+          balance <- balance.fromContrast(x.reduced, sbp.est)
+          model.train <- stats::glm(y~balance,data=data.frame(balance=balance,y=as.factor(y)),
+                                    family=stats::binomial(link='logit'))
         }
       }
     } else if (response.type=='continuous'){
-      model.train <- stats::lm(
-        y~balance,data=data.frame(balance=balance,y=y))
+      model.train <- stats::lm(y~balance,data=data.frame(balance=balance,y=y))
       if(positive.slope){
         if(stats::coef(model.train)[2] < 0){
           sbp.est = -sbp.est
-          balance <- slr.fromContrast(x.reduced, sbp.est)
-          model.train <- stats::lm(
-            y~balance,data=data.frame(balance=balance,y=y))
+          balance <- balance.fromContrast(x.reduced, sbp.est)
+          model.train <- stats::lm(y~balance,data=data.frame(balance=balance,y=y))
         }
       }
     }
     object <- list(
-      sbp = sbp.est, Aitchison.var = Aitchison.var, cluster.mat = cluster.mat)
+      bp = sbp.est, Aitchison.var = Aitchison.var, cluster.mat = cluster.mat)
   }
   object$feature.scores <- feature.scores
   object$theta <- as.numeric(stats::coef(model.train))
@@ -203,17 +198,21 @@ slr = function(
 }
 
 slr.predict <- function(
-    object, newdata = NULL, response.type=c('survival','continuous','binary')
+    object, newdata = NULL, response.type=c('continuous','binary')
 ){
   # prediction will be based on the canonical space
   if (missing(newdata) || is.null(newdata)) {
     stop('No new data provided!')
   } else {
-    if (is.null(object$sbp)){
-      predictor <- sigmoid(rep(1,nrow(newdata)) * object$theta)
+    if (is.null(object$bp)){
+      if (response.type=='binary'){
+        predictor <- sigmoid(rep(1,nrow(newdata)) * object$theta)
+      } else {
+        predictor <- rep(1,nrow(newdata)) * object$theta
+      }
     } else {
-      newdata.reduced <- newdata[,colnames(newdata) %in% names(object$sbp)]
-      new.balance <- slr.fromContrast(newdata.reduced,object$sbp)
+      newdata.reduced <- newdata[,colnames(newdata) %in% names(object$bp)]
+      new.balance <- balance.fromContrast(newdata.reduced,object$bp)
       if (response.type=='binary'){
         fitted.results <- stats::predict(
           object$fit,newdata=data.frame(balance=new.balance),type='response')
@@ -227,7 +226,7 @@ slr.predict <- function(
 }
 
 buildPredmat <- function(
-    outlist,threshold,x,y,foldid,response.type,type.measure
+    outlist,threshold,X,y,foldid,response.type,type.measure
 ){
   nfolds = max(foldid)
   predmat = matrix(NA, nfolds, length(threshold))
@@ -235,7 +234,7 @@ buildPredmat <- function(
     which = foldid == i
     y.i = y[which]
     fitobj = outlist[[i]]
-    x.i = x[which, , drop=FALSE]
+    x.i = X[which, , drop=FALSE]
     predy.i = sapply(
       fitobj, function(a) slr.predict(
         a,newdata=x.i,response.type=response.type))
@@ -266,7 +265,6 @@ buildPredmat <- function(
 }
 
 getOptcv <- function(threshold, cvm, cvsd){
-  # if(match(cvname,c("AUC","C-index"),0))cvm=-cvm
   cvmin = min(cvm, na.rm = TRUE)
   idmin = cvm <= cvmin
   threshold.min = max(threshold[idmin], na.rm = TRUE)
@@ -284,54 +282,99 @@ getOptcv <- function(threshold, cvm, cvsd){
 }
 
 
-#' Cross Validation for Supervised Log-Ratios
+#' Cross Validation for Supervised Log Ratio
 #'
-#' @param x Matrix of relative abundances of compositional covariates (n sample proportions of p compositional components) for n observations with an observed response.
-#' @param y Response vector (with length n).
-#' @param screen.method Method of variable screening: could be correlation based ("correlation") or wald score based ("wald").
-#' @param cluster.method Method of clustering: "spectral" or "hierarchical".
-#' @param response.type Type of response variable: could be "survival", "continuous", or "binary". Currently only continuous and binary responses are allowed.
-#' @param threshold Nonnegative constant between 0 and 1. If NULL, then no variable screening is performed.
-#' @param s0.perc Factor for denominator of score statistic, between 0 and 1: the percentile of standard deviation values added to the denominator. Default is 0.
-#' @param zeta Small number used to perturb the network by adding some links with low edge weights in the calculation of the Normalized Laplacian.
-#' @param type.measure Loss used for cross-validation
-#' @param nfolds Number of folds
-#' @param foldid An optional vector of values between 1 and nfold identifying which fold each observation is in
-#' @param weights Observation weights, default is 1
-#' @param trace.it If trace.it=TRUE, then progress bars are displayed
+#' @param X A sample by variable matrix of strictly positive relative abundances (\code{n} by \code{p}). This matrix should not contain any zeros.
+#' @param y The response vector of length \code{n}.
+#' @param screen.method Method of variable screening: could be correlation based ("correlation") or wald score based ("wald"). Default is \code{wald}.
+#' @param cluster.method Method of clustering: "spectral" or "hierarchical". Default is \code{spectral}.
+#' @param response.type Type of the response variable: could be "continuous" or "binary".
+#' @param threshold Optional user-supplied threshold sequence; default is \code{NULL} and \code{cv.slr} chooses its own sequence, which is recommended.
+#' @param s0.perc The percentile of standard deviation values added to the denominator of the wald score statistic. Default is 0.
+#' @param zeta A small positive value used to perturb the Aitchison similarity matrix when spectral clustering is used. Default is 0.
+#' @param type.measure Loss used for cross-validation. If \code{response.type='continuous'}, then \code{type.measure="mse"}. For two-class logistic regression, \code{type.measure="auc"}.
+#' @param nfolds Number of folds. Default is 10.
+#' @param foldid An optional vector of values between 1 and \code{nfold} identifying which fold each observation is in. If supplied, \code{nfold} can be missing.
+#' @param weights Observation weights. Default is 1 per observation.
+#' @param trace.it If \code{trace.it=TRUE}, then progress bars are displayed.
 #'
-#' @return cv.slr object
+#' @return An object of class \code{"cv.slr"} is returned, which is a list with the ingredients of cross-validation fit.
+#' \item{threshold}{A vector of threshold values used. The range of threshold values depends on the marginal association between each variable and the response.}
+#' \item{cvm}{The mean cross-validated error - a vector of length \code{length(threshold)}.}
+#' \item{cvsd}{The estimate of standard error of \code{cvm}.}
+#' \item{foldid}{The fold assignments used.}
+#' \item{threshold.min}{Value of \code{threshold} that gives minimum \code{cvm}.}
+#' \item{threshold.1se}{Largest value of \code{threshoold} such that error if within 1 standard error of the minimum. This choice usually leads to a sparser set of selected variables.}
+#' \item{index}{A one column matrix with the indices of \code{threshold.min} and \code{threshold.1se} in the sequence of all threshold values.}
+#'
 #' @export
 #'
+#' @description Performs k-fold cross-validation for \code{slr} and returns an optimal value for \code{threshold}.
+#'
+#' @details Please see \code{slr} for details regarding the choice of \code{s0.perc} and \code{zeta}.
+#'
+#' @author Jing Ma and Kristyn Pantoja.
+#'
+#' Maintainer: Jing Ma (\url{jingma@fredhutch.org})
+#'
+#' @seealso \code{slr}
+#'
 #' @examples
+#'# Set parameters ----
+#' set.seed(1)
+#' p <- 30    # number of variables
+#' n <- 100   # number of samples
+#' sigy <- 0.25   # noise level in regression
+#' sigx <- 0.25   # noise level in covariates
+#' r <- 2
+#' s <- 2
+#'
+#' # Generate x from a latent variable model ----
+#' U1 <- runif(n,-0.5,0.5)
+#' alpha1 <- 5*c(rep(1,r)/r,-rep(1,s)/s,rep(0,p-1-r-s)) # the first 4 variables define a balance
+#' Sigma <- diag(1,p-1)
+#' rownames(Sigma) <- colnames(Sigma) <- paste0('s',1:(p-1))
+#' xALR <- tcrossprod(as.matrix(U1), as.matrix(alpha1)) + mvtnorm::rmvnorm(n,mean=rep(0,p-1),sigma = Sigma) * sigx
+#' x <- alrinv(xALR)
+#' colnames(x) <- paste0('s',1:p)
+#'
+#' # Generate y from a latent variable model ----
+#' y <- U1 + rnorm(n) * sigy
+#'
+#' # Run slr ----
+#' fit <- cv.slr(x,y,screen.method='wald',cluster.method ='hierarchical',response.type = 'continuous',nfolds=10)
+#' plot(fit$threshold, fit$cvm)
+#'
 cv.slr <- function(
-    x, y, screen.method = c('correlation', 'wald'),
+    X,
+    y,
+    screen.method = c('correlation', 'wald'),
     cluster.method = c('spectral', 'hierarchical'),
-    response.type=c('survival', 'continuous', 'binary'),
+    response.type = c('continuous', 'binary'),
     threshold = NULL,
-    s0.perc = 0, zeta = 0,
-    type.measure = c(
-      "default", "mse", "deviance", "class", "auc", "mae", "C", "accuracy"
-    ),
+    s0.perc = 0,
+    zeta = 0,
+    type.measure = c("default", "mse", "deviance", "class", "auc", "mae", "C", "accuracy"),
     nfolds = 10,
-    foldid = NULL, weights = NULL, #
-    trace.it = FALSE #
+    foldid = NULL,
+    weights = NULL,
+    trace.it = FALSE
 ){
   type.measure = match.arg(type.measure)
-  N <- nrow(x)
-  p <- ncol(x)
+  N <- nrow(X)
+  p <- ncol(X)
 
   if (is.null(weights)){
     weights = rep(1, nfolds)
   }
 
   if (is.null(threshold)) {
-    xclr <- apply(x,1,function(a) log(a) - mean(log(a)))
+    xclr <- apply(X,1,function(a) log(a) - mean(log(a)))
     xclr.centered <- base::scale(t(xclr),center=TRUE, scale=TRUE)
 
     # determine threshold based on univariate score statistics or correlations
     threshold = sort(
-      getFeatureScores(x, y, screen.method, response.type, s0.perc))
+      getFeatureScores(X, y, screen.method, response.type, s0.perc))
   }
 
   if (is.null(foldid)) {
@@ -353,12 +396,11 @@ cv.slr <- function(
       cat(sprintf("Fold: %d/%d\n", i, nfolds))
     }
     which.fold.i = foldid == i
-    # x_in <- x[which.fold.i, ,drop=FALSE]
-    x_sub <- x[!which.fold.i, ,drop=FALSE]
+    # x_in <- X[which.fold.i, ,drop=FALSE]
+    x_sub <- X[!which.fold.i, ,drop=FALSE]
     y_sub <- y[!which.fold.i]
-    x.unlab_sub = NULL
     outlist[[i]] <- lapply(threshold, function(l) slr(
-      x = x_sub, y = y_sub,
+      X = x_sub, y = y_sub,
       screen.method = screen.method, cluster.method = cluster.method,
       response.type = response.type,
       threshold = l,
@@ -368,7 +410,7 @@ cv.slr <- function(
   # collect all out-of-sample predicted values
   #   with the updated code, this is more like a CV matrix
   predmat <- buildPredmat(
-    outlist, threshold, x, y, foldid, response.type = response.type,
+    outlist, threshold, X, y, foldid, response.type = response.type,
     type.measure = type.measure)
 
   cvm <- apply(predmat, 2, stats::weighted.mean, w=weights, na.rm = TRUE)
@@ -377,7 +419,7 @@ cv.slr <- function(
   out <- list(
     threshold = threshold,
     cvm=cvm,cvsd = cvsd,
-    fit.preval = predmat,
+    # fit.preval = predmat,
     foldid = foldid
   )
 
@@ -388,26 +430,3 @@ cv.slr <- function(
   obj
 }
 
-#' Supervised Log-Ratios Microbial Signature
-#'
-#' @param x Matrix of relative abundances of compositional covariates.
-#' @param contrast Contrast vector that takes values from -1, 0, 1, indicating the log-ratio discovered by slr.
-#'
-#' @return The microbial signature, or balance, corresponding to x, under the supervised log-ratios balance regression model.
-#' @export
-#'
-#' @examples
-slr.fromContrast <- function(x, contrast){
-
-  if(length(contrast) != ncol(x)) stop("Contrast must have length ncol(x) = D.")
-  if(any(!contrast %in% c(-1, 0, 1))) stop("Contrast must contain [-1, 0, 1] only.")
-
-  # lpos <- sum(contrast == 1)
-  # lneg <- sum(contrast == -1)
-  # const <- sqrt((lpos*lneg)/(lpos+lneg))
-  logX <- log(x)
-  ipos <- rowMeans(logX[, contrast == 1, drop = FALSE])
-  ineg <- rowMeans(logX[, contrast == -1, drop = FALSE])
-
-  ipos - ineg
-}

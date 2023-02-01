@@ -2,10 +2,10 @@
 % Please edit documentation in R/slr.R
 \name{slr}
 \alias{slr}
-\title{Supervised Log-Ratios}
+\title{Supervised Log Ratio}
 \usage{
 slr(
-  x,
+  X,
   y,
   screen.method = c("correlation", "wald"),
   cluster.method = c("spectral", "hierarchical"),
@@ -17,27 +17,84 @@ slr(
 )
 }
 \arguments{
-\item{x}{Matrix of relative abundances of compositional covariates (n sample proportions of p compositional components) for n observations with an observed response.}
+\item{X}{A sample by variable matrix of strictly positive relative abundances (\code{n} by \code{p}). This matrix should not contain any zeros. See details.}
 
-\item{y}{Response vector (with length n).}
+\item{y}{The response vector of length \code{n}.}
 
-\item{screen.method}{Method of variable screening: could be correlation based ("correlation") or wald score based ("wald").}
+\item{screen.method}{Method of variable screening: could be correlation based ("correlation") or wald score based ("wald"). Default is \code{wald}.}
 
-\item{cluster.method}{Method of clustering: "spectral" or "hierarchical".}
+\item{cluster.method}{Method of clustering: "spectral" or "hierarchical". Default is \code{spectral}.}
 
-\item{response.type}{Type of response variable: could be "survival", "continuous", or "binary". Currently only continuous and binary responses are allowed.}
+\item{response.type}{Type of the response variable: could be "continuous" or "binary".}
 
-\item{threshold}{Nonnegative constant between 0 and 1. If NULL, then no variable screening is performed.}
+\item{threshold}{A nonnegative constant between 0 and 1. If \code{NULL}, then no variable screening is performed.}
 
-\item{s0.perc}{Factor for denominator of score statistic, between 0 and 1: the percentile of standard deviation values added to the denominator. Default is 0.}
+\item{s0.perc}{The percentile of standard deviation values added to the denominator of the wald score statistic. Default is 0. See details.}
 
-\item{zeta}{Small number used to perturb the network by adding some links with low edge weights in the calculation of the Normalized Laplacian.}
+\item{zeta}{A small positive value used to perturb the Aitchison similarity matrix when spectral clustering is used. Default is 0. See details.}
 
-\item{positive.slope}{Logical flag indicating whether to define the balance such that its corresponding parameter estimate is positive.}
+\item{positive.slope}{Logical flag indicating whether to define the balance such that its corresponding slope estimate is positive. Default is \code{TRUE}.}
 }
 \value{
-slr object
+An object of class \code{"slr"} is returned, which is a list with
+
+\item{bp}{The binary partition of selected variables. A positive value of 1 indicates the variable is in the numerator, while -1 indicates a denominator variable.}
+\item{Aitchison.var}{The Aitchison variation matrix for the selected variables.}
+\item{cluster.mat}{The matrix used in clustering selected variables into two groups. For spectral clustering, it corresponds to the Aitchison similarity matrix. For hierarchical clustering, this is the Aitchison variation matrix.}
+\item{feature.scores}{The feature scores for all variables.}
+\item{theta}{A vector of length 2 consisting of the intercept and slope when fitting the balance regression ordinary least squares.}
 }
 \description{
-Supervised Log-Ratios
+\code{slr} fits a balance regression model in which the balance is defined by a sparse set of input variables.
+}
+\details{
+\code{slr} first uses a screening procedure to identify the active variables correlated with the response \code{y}.
+Essentially, it computes the univariate regression coefficients for centered log ratio transformed \code{X} and
+forms a reduced data matrix with variables whose univariate coefficients exceed a \code{threshold} in absolute value
+(the threshold is chosen via cross-validation). Then, it performs clustering of the active variables on a suitable dissimilarity
+derived from the reduced data matrix to get 2 clusters. Finally, \code{slr} uses the resulting balance to predict \code{y}.
+
+The design matrix \code{X} should not contain any zeros. In general, zeros in raw data should be imputed using a pseudocount or Bayesian method prior to applying \code{slr}.
+
+When the wald score statistic is used,
+
+When spectral clustering is used, it can be beneficial to perturb the Aitchison similarity matrix with a small positive value to improve the clustering performance. This leads to regularized spectral clustering.
+For more details on regularized spectral clustering of networks, see Amini et al. (13').
+}
+\examples{
+# Set parameters ----
+set.seed(1)
+p <- 30    # number of variables
+n <- 100   # number of samples
+sigy <- 0.25   # noise level in regression
+sigx <- 0.25   # noise level in covariates
+r <- 2
+s <- 2
+
+# Generate x from a latent variable model ----
+U1 <- runif(n,-0.5,0.5)
+alpha1 <- 5*c(rep(1,r)/r,-rep(1,s)/s,rep(0,p-1-r-s)) # the first 4 variables define a balance
+Sigma <- diag(1,p-1)
+rownames(Sigma) <- colnames(Sigma) <- paste0('s',1:(p-1))
+xALR <- tcrossprod(as.matrix(U1), as.matrix(alpha1)) + mvtnorm::rmvnorm(n,mean=rep(0,p-1),sigma = Sigma) * sigx
+x <- alrinv(xALR)
+colnames(x) <- paste0('s',1:p)
+
+# Generate y from a latent variable model ----
+y <- U1 + rnorm(n) * sigy
+
+# Run slr ----
+fit <- slr(x,y,screen.method='wald',cluster.method ='hierarchical',response.type = 'continuous',threshold = 0.9)
+fit$bp
+}
+\references{
+Amini, A. A., Chen, A., Bickel, P. J., & Levina, E. (2013). Pseudo-likelihood methods for community detection in large sparse networks. Annals of Statistics. 41(4): 2097-2122
+}
+\seealso{
+\code{cv.slr}
+}
+\author{
+Jing Ma and Kristyn Pantoja.
+
+Maintainer: Jing Ma (\url{jingma@fredhutch.org})
 }

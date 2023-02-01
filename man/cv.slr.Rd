@@ -2,19 +2,18 @@
 % Please edit documentation in R/slr.R
 \name{cv.slr}
 \alias{cv.slr}
-\title{Cross Validation for Supervised Log-Ratios}
+\title{Cross Validation for Supervised Log Ratio}
 \usage{
 cv.slr(
-  x,
+  X,
   y,
   screen.method = c("correlation", "wald"),
   cluster.method = c("spectral", "hierarchical"),
-  response.type = c("survival", "continuous", "binary"),
+  response.type = c("continuous", "binary"),
   threshold = NULL,
   s0.perc = 0,
   zeta = 0,
-  type.measure = c("default", "mse", "deviance", "class", "auc", "mae", "C",
-    "accuracy"),
+  type.measure = c("default", "mse", "deviance", "class", "auc", "mae", "C", "accuracy"),
   nfolds = 10,
   foldid = NULL,
   weights = NULL,
@@ -22,35 +21,80 @@ cv.slr(
 )
 }
 \arguments{
-\item{x}{Matrix of relative abundances of compositional covariates (n sample proportions of p compositional components) for n observations with an observed response.}
+\item{X}{A sample by variable matrix of strictly positive relative abundances (\code{n} by \code{p}). This matrix should not contain any zeros.}
 
-\item{y}{Response vector (with length n).}
+\item{y}{The response vector of length \code{n}.}
 
-\item{screen.method}{Method of variable screening: could be correlation based ("correlation") or wald score based ("wald").}
+\item{screen.method}{Method of variable screening: could be correlation based ("correlation") or wald score based ("wald"). Default is \code{wald}.}
 
-\item{cluster.method}{Method of clustering: "spectral" or "hierarchical".}
+\item{cluster.method}{Method of clustering: "spectral" or "hierarchical". Default is \code{spectral}.}
 
-\item{response.type}{Type of response variable: could be "survival", "continuous", or "binary". Currently only continuous and binary responses are allowed.}
+\item{response.type}{Type of the response variable: could be "continuous" or "binary".}
 
-\item{threshold}{Nonnegative constant between 0 and 1. If NULL, then no variable screening is performed.}
+\item{threshold}{Optional user-supplied threshold sequence; default is \code{NULL} and \code{cv.slr} chooses its own sequence, which is recommended.}
 
-\item{s0.perc}{Factor for denominator of score statistic, between 0 and 1: the percentile of standard deviation values added to the denominator. Default is 0.}
+\item{s0.perc}{The percentile of standard deviation values added to the denominator of the wald score statistic. Default is 0.}
 
-\item{zeta}{Small number used to perturb the network by adding some links with low edge weights in the calculation of the Normalized Laplacian.}
+\item{zeta}{A small positive value used to perturb the Aitchison similarity matrix when spectral clustering is used. Default is 0.}
 
-\item{type.measure}{Loss used for cross-validation}
+\item{type.measure}{Loss used for cross-validation. If \code{response.type='continuous'}, then \code{type.measure="mse"}. For two-class logistic regression, \code{type.measure="auc"}.}
 
-\item{nfolds}{Number of folds}
+\item{nfolds}{Number of folds. Default is 10.}
 
-\item{foldid}{An optional vector of values between 1 and nfold identifying which fold each observation is in}
+\item{foldid}{An optional vector of values between 1 and \code{nfold} identifying which fold each observation is in. If supplied, \code{nfold} can be missing.}
 
-\item{weights}{Observation weights, default is 1}
+\item{weights}{Observation weights. Default is 1 per observation.}
 
-\item{trace.it}{If trace.it=TRUE, then progress bars are displayed}
+\item{trace.it}{If \code{trace.it=TRUE}, then progress bars are displayed.}
 }
 \value{
-cv.slr object
+An object of class \code{"cv.slr"} is returned, which is a list with the ingredients of cross-validation fit.
+\item{threshold}{A vector of threshold values used. The range of threshold values depends on the marginal association between each variable and the response.}
+\item{cvm}{The mean cross-validated error - a vector of length \code{length(threshold)}.}
+\item{cvsd}{The estimate of standard error of \code{cvm}.}
+\item{foldid}{The fold assignments used.}
+\item{threshold.min}{Value of \code{threshold} that gives minimum \code{cvm}.}
+\item{threshold.1se}{Largest value of \code{threshoold} such that error if within 1 standard error of the minimum. This choice usually leads to a sparser set of selected variables.}
+\item{index}{A one column matrix with the indices of \code{threshold.min} and \code{threshold.1se} in the sequence of all threshold values.}
 }
 \description{
-Cross Validation for Supervised Log-Ratios
+Performs k-fold cross-validation for \code{slr} and returns an optimal value for \code{threshold}.
+}
+\details{
+Please see \code{slr} for details regarding the choice of \code{s0.perc} and \code{zeta}.
+}
+\examples{
+# Set parameters ----
+set.seed(1)
+p <- 30    # number of variables
+n <- 100   # number of samples
+sigy <- 0.25   # noise level in regression
+sigx <- 0.25   # noise level in covariates
+r <- 2
+s <- 2
+
+# Generate x from a latent variable model ----
+U1 <- runif(n,-0.5,0.5)
+alpha1 <- 5*c(rep(1,r)/r,-rep(1,s)/s,rep(0,p-1-r-s)) # the first 4 variables define a balance
+Sigma <- diag(1,p-1)
+rownames(Sigma) <- colnames(Sigma) <- paste0('s',1:(p-1))
+xALR <- tcrossprod(as.matrix(U1), as.matrix(alpha1)) + mvtnorm::rmvnorm(n,mean=rep(0,p-1),sigma = Sigma) * sigx
+x <- alrinv(xALR)
+colnames(x) <- paste0('s',1:p)
+
+# Generate y from a latent variable model ----
+y <- U1 + rnorm(n) * sigy
+
+# Run slr ----
+fit <- cv.slr(x,y,screen.method='wald',cluster.method ='hierarchical',response.type = 'continuous',nfolds=10)
+plot(fit$threshold, fit$cvm)
+
+}
+\seealso{
+\code{slr}
+}
+\author{
+Jing Ma and Kristyn Pantoja.
+
+Maintainer: Jing Ma (\url{jingma@fredhutch.org})
 }
