@@ -1,0 +1,69 @@
+---
+title: "Vignette for slr package"
+author: Jing Ma and Kristyn Pantoja
+output:     
+    BiocStyle::html_document
+vignette: >
+  %\VignetteIndexEntry{use-slr}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+library(ggplot2)
+```
+
+# Getting Started
+
+In this vignette, we will use a publicly available HIV data set to illustrate how to use the **slr** package to perform regression analysis of compositional data. 
+
+To load this data set, one only needs to load the **selbal** package. `HIV` is a data frame with 155 rows (samples) and 62 columns (variables). The first 60 variables measure the counts of bacterial species at the genus taxonomy rank. The last column `HIV_Status` is a factor indicating the HIV infection status: Pos/Neg if an individual is HIV1 positive/negative. There is also a column `MSM` which is an HIV risk factor, Men who has sex with men (MSM) or not (nonMSM). For illustration purpose, we ignore the `MSM` variable and only use the 60 compositional variables to predict HIV infection status. 
+
+```{r input}
+library(selbal)
+X <- HIV[,1:60]
+y <- HIV[,62]
+```
+
+Before regression analysis, we need to first make sure the predictors `X` contain strictly positive relative abundances. This can be achieved by either adding a pseudocount of 1 to all entries of `X` before total sum normalization or applying a Bayesian imputation method as done in **selbal**. Here we adopt the latter strategy. 
+```{r zero_handling, message=FALSE,warning=FALSE}
+X_gbm = cmultRepl2(X, zero.rep = "bayes")
+```
+
+
+# Main Function
+
+The main functions of the **slr** package are `slr` and `cv.slr`. The function `slr` requires a tuning parameter which can be chosen using the `cv.slr` function. For example, we can perform 10-fold cross-validation on the HIV data set to determine the optimal tuning parameter. 
+
+```{r cv, eval=FALSE}
+library(slr)
+y2 = ifelse(y == "Pos", 1, 0)
+
+cv.out <- cv.slr(X_gbm,y2, screen.method='wald', cluster.method ='spectral', response.type = 'binary', threshold = NULL,type.measure = 'auc',trace.it = TRUE)
+
+df = with(cv.out,
+     data.frame(threshold = threshold, AUC = cvm, AUChi=cvm+cvsd, AUClow=cvm-cvsd))
+
+ggplot(df,aes(x=threshold,y=AUC)) + 
+  geom_point(col="#f05454") + 
+  geom_errorbar(aes(ymin = AUClow,ymax=AUChi),col="#30475e") + 
+  geom_vline(xintercept=c(cv.out$threshold.1se,cv.out$threshold.min), linetype="dashed") +
+  ylab('1-AUC') +
+  theme_bw()
+
+```
+
+```{r}
+fit <- slr(X_gbm,y2, screen.method='wald', cluster.method ='spectral', response.type = 'binary', threshold = 0.7)
+
+```
+
+# To Do
+
+The function `balance.fromContrast` does not need to cycle through all variables. Instead, we can focus only on variables included in the balance. 
+
+Define AUC in the usual way, but when defining cvm and cvsd remember to customize the if condition. 
