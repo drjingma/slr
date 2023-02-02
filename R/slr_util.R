@@ -23,29 +23,10 @@ graph.laplacian <- function(W, normalized = TRUE, zeta=0.01){
   }
 }
 
-#'
-#' @description Performs spectral clustering for a given similarity matrix and pre-specified number of clusters.
-#'
-#' @param W The similarity matrix.
-#' @param k Number of clusters.
-#' @param zeta A small positive number used to perturb the similarity matrix by adding some links with low edge weights in the calculation of the normalized Laplacian.
-#'
-#' @return cluster assignments
-#'
-#' @details For spectral clustering, it can be beneficial to perturb the similarity matrix with a small positive value to improve the clustering performance. This leads to regularized spectral clustering.
-#' For more details on regularized spectral clustering of networks, see Amini et al. (13').
-#'
-#' @author Jing Ma and Kristyn Pantoja.
-#'
-#' Maintainer: Jing Ma (\url{jingma@fredhutch.org})
-#'
-#' @references
-#' Amini, A. A., Chen, A., Bickel, P. J., & Levina, E. (2013). Pseudo-likelihood methods for community detection in large sparse networks. Annals of Statistics. 41(4): 2097-2122
-#'
 spectral.clust <- function(W, k, zeta = 0) {
   L = graph.laplacian(W,zeta = zeta) # Compute graph Laplacian
   ei = eigen(L, symmetric = TRUE)    # Compute the eigenvectors and eigenvalues of L
-  # we will use k-means to cluster the eigenvectors corresponding to the leading smallest eigenvalues
+  # we will use k-means to cluster the eigenvectors corresponding to the largest eigenvalues in absolute value
   ei$vectors <- ei$vectors[,base::order(abs(ei$values),decreasing=TRUE)]
   obj <- stats::kmeans(
     ei$vectors[, 1:k], centers = k, nstart = 100, algorithm = "Lloyd")
@@ -71,8 +52,7 @@ getAitchisonVar = function(x){
 
 sbp.fromHclust <- function(hclust){
 
-  if(class(hclust) != "hclust"){
-
+  if(!inherits(hclust, "hclust")){
     stop("This function expects an 'hclust' object.")
   }
 
@@ -117,35 +97,44 @@ sbp.fromHclust <- function(hclust){
   sbp
 }
 
+balance.fromBP <- function(X, bp){
 
-# Get a contrast vector from a given binary partition vector
-#' @description Fill zeros to a given binary partition vector to obtain a contrast.
-#'
-#' @param bp Binary partition returned by the \code{slr} function.
-#' @param X A sample by variable matrix of strictly positive relative abundances (\code{n} by \code{p}).
-#'
-#' @return A contrast vector of length \code{ncol(X)}.
-#'
-getContrast <- function(bp, X){
-  contrast = matrix(0, nrow = ncol(X), ncol = 1)
-  rownames(contrast) = colnames(X)
-  contrast[match(names(bp), rownames(contrast))] = bp
-  contrast
-}
+  if(length(bp) > ncol(X)) stop("bp must have length no greater than ncol(x).")
+  if(any(!bp %in% c(-1, 1))) stop("bp must contain [-1, 1] only.")
+  if(length(bp) < 2) stop("bp must have length no smaller than 2.")
 
-# Balance from a contrast vector
-#' @param X A sample by variable matrix of strictly positive relative abundances (\code{n} by \code{p}). This matrix should not contain any zeros. See details.
-#' @param contrast Contrast vector that takes values from -1, 0, 1. This vector should be have length \code{ncol(X)}.
-#'
-#' @return The balance predictor corresponding to \code{contrast}.
-balance.fromContrast <- function(X, contrast){
-
-  if(length(contrast) != ncol(X)) stop("Contrast must have length ncol(x).")
-  if(any(!contrast %in% c(-1, 0, 1))) stop("Contrast must contain [-1, 0, 1] only.")
-
-  logX <- log(X)
-  ipos <- rowMeans(logX[, contrast == 1, drop = FALSE])
-  ineg <- rowMeans(logX[, contrast == -1, drop = FALSE])
+  logX <- log(X[, match(names(bp),colnames(X))])
+  ipos <- rowMeans(logX[, bp == 1, drop = FALSE])
+  ineg <- rowMeans(logX[, bp == -1, drop = FALSE])
 
   ipos - ineg
+}
+
+#' Load the HIV data set
+#' @description Load the HIV data set from the selbal R package.
+#'
+#' @details This function is a wrapper to import the \code{HIV} data set from the selbal R package.
+#' Please make sure the package is installed by visiting \url{https://github.com/malucalle/selbal}.
+#'
+#' \code{HIV} is a data frame with 155 rows (samples) and 62 columns (variables).
+#' The first 60 variables measure the counts of bacterial species at the genus taxonomy rank.
+#' The last column \code{HIV_Status} is a factor indicating the HIV infection status:
+#' Pos/Neg if an individual is HIV1 positive/negative. There is also a column \code{MSM}
+#' which is an HIV risk factor, Men who has sex with men (MSM) or not (nonMSM).
+#'
+#' @references
+#'
+#' \url{https://pubmed.ncbi.nlm.nih.gov/27077120/}
+#'
+#' @export
+#'
+load_data <- function() {
+  # check if package is installed
+  if (requireNamespace("selbal", quietly = TRUE)) {
+    # get name of random dataset
+    x <- utils::data(list = "HIV", package = "selbal", envir = environment())
+    return(get(x))
+  } else {
+    stop("Install package from https://github.com/malucalle/selbal first.")
+  }
 }

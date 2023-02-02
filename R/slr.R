@@ -76,10 +76,8 @@ getFeatureScores = function(X, y, screen.method, response.type, s0.perc){
 #' @return An object of class \code{"slr"} is returned, which is a list with
 #'
 #' \item{bp}{The binary partition of selected variables. A positive value of 1 indicates the variable is in the numerator, while -1 indicates a denominator variable.}
-#' \item{Aitchison.var}{The Aitchison variation matrix for the selected variables.}
-#' \item{cluster.mat}{The matrix used in clustering selected variables into two groups. For spectral clustering, it corresponds to the Aitchison similarity matrix. For hierarchical clustering, this is the Aitchison variation matrix.}
 #' \item{feature.scores}{The feature scores for all variables.}
-#' \item{theta}{A vector of length 2 consisting of the intercept and slope when fitting the balance regression ordinary least squares.}
+#' \item{glm.fit}{The generalized linear model fit from a univariate balance regression. }
 #' @export
 #'
 #' @author Jing Ma and Kristyn Pantoja.
@@ -92,31 +90,16 @@ getFeatureScores = function(X, y, screen.method, response.type, s0.perc){
 #' Amini, A. A., Chen, A., Bickel, P. J., & Levina, E. (2013). Pseudo-likelihood methods for community detection in large sparse networks. Annals of Statistics. 41(4): 2097-2122
 #'
 #' @examples
-#'# Set parameters ----
-#' set.seed(1)
-#' p <- 30    # number of variables
-#' n <- 100   # number of samples
-#' sigy <- 0.25   # noise level in regression
-#' sigx <- 0.25   # noise level in covariates
-#' r <- 2
-#' s <- 2
 #'
-#' # Generate x from a latent variable model ----
-#' U1 <- runif(n,-0.5,0.5)
-#' alpha1 <- 5*c(rep(1,r)/r,-rep(1,s)/s,rep(0,p-1-r-s)) # the first 4 variables define a balance
-#' Sigma <- diag(1,p-1)
-#' rownames(Sigma) <- colnames(Sigma) <- paste0('s',1:(p-1))
-#' xALR <- tcrossprod(as.matrix(U1), as.matrix(alpha1)) + mvtnorm::rmvnorm(n,mean=rep(0,p-1),sigma = Sigma) * sigx
-#' x <- alrinv(xALR)
-#' colnames(x) <- paste0('s',1:p)
-#'
-#' # Generate y from a latent variable model ----
-#' y <- U1 + rnorm(n) * sigy
+#' HIV <- load_data() # Load HIV data
+#' X <- HIV[,1:60]
+#' y <- ifelse(HIV[,62] == "Pos", 1, 0)
+#' X.adjusted <- sweep(X+1,rowSums(X+1),MARGIN = 1, FUN='/') # zero handling
 #'
 #' # Run slr ----
-#' fit <- slr(x,y,screen.method='wald',cluster.method ='hierarchical',response.type = 'continuous',threshold = 0.9)
+#' fit <- slr(X.adjusted, y, screen.method='wald', cluster.method ='spectral',
+#'            response.type = 'binary', threshold = 0.9, positive.slope = TRUE)
 #' fit$bp
-
 slr = function(
     X,
     y,
@@ -153,25 +136,25 @@ slr = function(
     if(cluster.method == "spectral" | nrow(Aitchison.var) == 2){
       Aitchison.sim <- max(Aitchison.var) - Aitchison.var
       ## Perform spectral clustering
-      sbp.est <- spectral.clust(Aitchison.sim, k=2,zeta = zeta)
+      bp.est <- spectral.clust(Aitchison.sim, k=2, zeta = zeta)
       cluster.mat = Aitchison.sim
     } else if(cluster.method == "hierarchical"){
       ## Perform hierarchical clustering
       htree.est <- stats::hclust(stats::dist(Aitchison.var))
-      sbp.est <- sbp.fromHclust(htree.est)[, 1] # grab 1st partition
+      bp.est <- sbp.fromHclust(htree.est)[, 1] # grab 1st partition
       cluster.mat = Aitchison.var
     } else{
       stop("invalid cluster.method arg was provided!!")
     }
-    balance <- balance.fromContrast(x.reduced, sbp.est) # predict from labeled data
+    balance <- balance.fromBP(x.reduced, bp.est) # predict from labeled data
     # model fitting
     if (response.type=='binary'){
       model.train <- stats::glm(y~balance,data=data.frame(balance=balance,y=as.factor(y)),
                                 family=stats::binomial(link='logit'))
       if(positive.slope){
         if(stats::coef(model.train)[2] < 0){
-          sbp.est = -sbp.est
-          balance <- balance.fromContrast(x.reduced, sbp.est)
+          bp.est = - bp.est
+          balance <- balance.fromBP(x.reduced, bp.est)
           model.train <- stats::glm(y~balance,data=data.frame(balance=balance,y=as.factor(y)),
                                     family=stats::binomial(link='logit'))
         }
@@ -180,18 +163,16 @@ slr = function(
       model.train <- stats::lm(y~balance,data=data.frame(balance=balance,y=y))
       if(positive.slope){
         if(stats::coef(model.train)[2] < 0){
-          sbp.est = -sbp.est
-          balance <- balance.fromContrast(x.reduced, sbp.est)
+          bp.est = - bp.est
+          balance <- balance.fromBP(x.reduced, bp.est)
           model.train <- stats::lm(y~balance,data=data.frame(balance=balance,y=y))
         }
       }
     }
-    object <- list(
-      bp = sbp.est, Aitchison.var = Aitchison.var, cluster.mat = cluster.mat)
+    object <- list(bp = bp.est)
   }
   object$feature.scores <- feature.scores
-  object$theta <- as.numeric(stats::coef(model.train))
-  object$fit <- model.train
+  object$glm.fit <- model.train
 
   class(object) <- 'slr'
   return(object)
@@ -206,19 +187,19 @@ slr.predict <- function(
   } else {
     if (is.null(object$bp)){
       if (response.type=='binary'){
-        predictor <- sigmoid(rep(1,nrow(newdata)) * object$theta)
+        predictor <- sigmoid(rep(1,nrow(newdata)) * as.numeric(stats::coef(object$glm.fit)))
       } else {
-        predictor <- rep(1,nrow(newdata)) * object$theta
+        predictor <- rep(1,nrow(newdata)) * as.numeric(stats::coef(object$glm.fit))
       }
     } else {
       newdata.reduced <- newdata[,colnames(newdata) %in% names(object$bp)]
-      new.balance <- balance.fromContrast(newdata.reduced,object$bp)
+      new.balance <- balance.fromBP(newdata.reduced,object$bp)
       if (response.type=='binary'){
         fitted.results <- stats::predict(
-          object$fit,newdata=data.frame(balance=new.balance),type='response')
+          object$glm.fit,newdata=data.frame(balance=new.balance),type='response')
         predictor = fitted.results
       } else if (response.type=='continuous'){
-        predictor <- cbind(1,new.balance) %*% object$theta
+        predictor <- cbind(1,new.balance) %*% as.numeric(stats::coef(object$glm.fit))
       }
     }
     as.numeric(predictor)
@@ -253,8 +234,7 @@ buildPredmat <- function(
           predmat[i, j] <- mean((predy.ij > 0.5) != y.i)
         } else if(type.measure == "auc"){# auc, minimize 1 - auc
           predmat[i, j] = tryCatch({
-            1 - pROC::auc(
-              y.i,predy.ij, levels = c(0, 1), direction = "<", quiet = TRUE)
+            1 - pROC::auc(y.i,predy.ij, levels = c(0, 1), direction = "<", quiet = TRUE)
           }, error = function(e){return(NA)}
           )
         }
@@ -297,6 +277,7 @@ getOptcv <- function(threshold, cvm, cvsd){
 #' @param foldid An optional vector of values between 1 and \code{nfold} identifying which fold each observation is in. If supplied, \code{nfold} can be missing.
 #' @param weights Observation weights. Default is 1 per observation.
 #' @param trace.it If \code{trace.it=TRUE}, then progress bars are displayed.
+#' @param plot If \code{TRUE}, then a visualization of the cross-validation results is displayed.
 #'
 #' @return An object of class \code{"cv.slr"} is returned, which is a list with the ingredients of cross-validation fit.
 #' \item{threshold}{A vector of threshold values used. The range of threshold values depends on the marginal association between each variable and the response.}
@@ -304,7 +285,7 @@ getOptcv <- function(threshold, cvm, cvsd){
 #' \item{cvsd}{The estimate of standard error of \code{cvm}.}
 #' \item{foldid}{The fold assignments used.}
 #' \item{threshold.min}{Value of \code{threshold} that gives minimum \code{cvm}.}
-#' \item{threshold.1se}{Largest value of \code{threshoold} such that error if within 1 standard error of the minimum. This choice usually leads to a sparser set of selected variables.}
+#' \item{threshold.1se}{Largest value of \code{threshoold} such that the cross-validation error is within 1 standard error of the minimum. This choice usually leads to a sparser set of selected variables.}
 #' \item{index}{A one column matrix with the indices of \code{threshold.min} and \code{threshold.1se} in the sequence of all threshold values.}
 #'
 #' @export
@@ -320,30 +301,15 @@ getOptcv <- function(threshold, cvm, cvsd){
 #' @seealso \code{slr}
 #'
 #' @examples
-#'# Set parameters ----
-#' set.seed(1)
-#' p <- 30    # number of variables
-#' n <- 100   # number of samples
-#' sigy <- 0.25   # noise level in regression
-#' sigx <- 0.25   # noise level in covariates
-#' r <- 2
-#' s <- 2
 #'
-#' # Generate x from a latent variable model ----
-#' U1 <- runif(n,-0.5,0.5)
-#' alpha1 <- 5*c(rep(1,r)/r,-rep(1,s)/s,rep(0,p-1-r-s)) # the first 4 variables define a balance
-#' Sigma <- diag(1,p-1)
-#' rownames(Sigma) <- colnames(Sigma) <- paste0('s',1:(p-1))
-#' xALR <- tcrossprod(as.matrix(U1), as.matrix(alpha1)) + mvtnorm::rmvnorm(n,mean=rep(0,p-1),sigma = Sigma) * sigx
-#' x <- alrinv(xALR)
-#' colnames(x) <- paste0('s',1:p)
+#' HIV <- load_data() # Load HIV data
+#' X <- HIV[,1:60]
+#' y <- ifelse(HIV[,62] == "Pos", 1, 0)
+#' X.adjusted <- sweep(X+1,rowSums(X+1),MARGIN = 1, FUN='/')# zero handling
 #'
-#' # Generate y from a latent variable model ----
-#' y <- U1 + rnorm(n) * sigy
-#'
-#' # Run slr ----
-#' fit <- cv.slr(x,y,screen.method='wald',cluster.method ='hierarchical',response.type = 'continuous',nfolds=10)
-#' plot(fit$threshold, fit$cvm)
+#' cv.out <- cv.slr(X.adjusted, y, screen.method='wald', cluster.method ='spectral',
+#'                  response.type = 'binary', threshold = NULL,type.measure = 'auc',
+#'                  trace.it = TRUE, plot = TRUE)
 #'
 cv.slr <- function(
     X,
@@ -358,7 +324,8 @@ cv.slr <- function(
     nfolds = 10,
     foldid = NULL,
     weights = NULL,
-    trace.it = FALSE
+    trace.it = FALSE,
+    plot = FALSE
 ){
   type.measure = match.arg(type.measure)
   N <- nrow(X)
@@ -414,7 +381,7 @@ cv.slr <- function(
     type.measure = type.measure)
 
   cvm <- apply(predmat, 2, stats::weighted.mean, w=weights, na.rm = TRUE)
-  cvsd = apply(predmat, 2, stats::sd, na.rm = TRUE) / sqrt(nfolds)
+  cvsd <- apply(predmat, 2, stats::sd, na.rm = TRUE) / sqrt(nfolds)
 
   out <- list(
     threshold = threshold,
@@ -427,6 +394,25 @@ cv.slr <- function(
 
   obj = c(out, as.list(lamin))
   class(obj) = "cv.slr"
-  obj
+
+  if (plot){
+    df = with(obj,
+              data.frame(threshold = threshold, l = cvm, cvsd = cvsd))
+    if (response.type=='binary' && type.measure=='auc'){
+      df = with(obj,
+                data.frame(threshold = threshold, l = 1-cvm, cvsd = cvsd))
+    }
+
+    suppressWarnings({
+      # This warning was about the length of the arrow, which can be zero.
+      with(df, plot(threshold, l, ylim=c(min(l - cvsd),max(l+cvsd)), xlab="threshold", ylab=type.measure, col='red', type='b'))
+      # Add error bars
+      with(df, arrows(x0=threshold, y0=l - cvsd, x1=threshold, y1=l + cvsd, code=3, angle=90, length=0.05))
+      # Add vertical lines
+      with(obj, abline(v=c(threshold.1se,threshold.min), col=c("blue", "red"), lty=c(2,3), lwd=c(2,2)))
+    })
+
+  }
+  return(obj)
 }
 
