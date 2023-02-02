@@ -9,3 +9,6 @@
 `devtools::install_github(repo = "drjingma/slr")`
 
 ## Examples
+
+
+[![Travis-CI Build Status](https://travis-ci.org/drjingma/slr.svg?branch=master)](https://travis-ci.org/drjingma/slr)
