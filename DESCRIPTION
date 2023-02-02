@@ -2,20 +2,29 @@ Package: slr
 Title: Supervised Log Ratio 
 Version: 0.0.0.9000
 Authors@R: 
-    person("Kristyn", "Pantoja", , "kristyn.pantoja@gmail.com", role = c("aut", "cre"),
-           comment = c(ORCID = "YOUR-ORCID-ID"))
+    c(person(given="Jing", family="Ma", email="crystal.jing.ma@gmail.com", role = c("aut", "cre"),
+           comment = c(ORCID = "0000-0001-6294-227X")),
+      person(given = "Kristyn",
+             family = "Pantoja",
+             email = "kristyn.pantoja@gmail.com",
+             role = "ctb")     )
 Description: This package implements the supervised log ratio method for efficiently fitting a sparse balance regression model on compositional data.
 License: MIT + file LICENSE
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
 RoxygenNote: 7.2.1
-URL: https://github.com/kristynpantoja/slr
-BugReports: https://github.com/kristynpantoja/slr/issues
+URL: https://github.com/drjingma/slr
+BugReports: https://github.com/drjingma/slr/issues
 Imports: 
     pROC,
-    stats
+    stats,
+    utils
+Remotes: malucalle/selbal
 Suggests: 
     knitr,
     rmarkdown,
-    BiocStyle
+    BiocStyle,
+    selbal,
+    testthat (>= 3.0.0)
 VignetteBuilder: knitr
+Config/testthat/edition: 3
