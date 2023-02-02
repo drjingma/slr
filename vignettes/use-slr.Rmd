@@ -14,7 +14,6 @@ knitr::opts_chunk$set(
   collapse = TRUE,
   comment = "#>"
 )
-library(ggplot2)
 ```
 
 # Getting Started
@@ -24,46 +23,53 @@ In this vignette, we will use a publicly available HIV data set to illustrate ho
 To load this data set, one only needs to load the **selbal** package. `HIV` is a data frame with 155 rows (samples) and 62 columns (variables). The first 60 variables measure the counts of bacterial species at the genus taxonomy rank. The last column `HIV_Status` is a factor indicating the HIV infection status: Pos/Neg if an individual is HIV1 positive/negative. There is also a column `MSM` which is an HIV risk factor, Men who has sex with men (MSM) or not (nonMSM). For illustration purpose, we ignore the `MSM` variable and only use the 60 compositional variables to predict HIV infection status. 
 
 ```{r input}
-library(selbal)
+library(slr)
+HIV <- load_data() # Load HIV data
 X <- HIV[,1:60]
-y <- HIV[,62]
+y <- ifelse(HIV[,62] == "Pos", 1, 0)
 ```
 
-Before regression analysis, we need to first make sure the predictors `X` contain strictly positive relative abundances. This can be achieved by either adding a pseudocount of 1 to all entries of `X` before total sum normalization or applying a Bayesian imputation method as done in **selbal**. Here we adopt the latter strategy. 
-```{r zero_handling, message=FALSE,warning=FALSE}
-X_gbm = cmultRepl2(X, zero.rep = "bayes")
-```
+Before regression analysis, we need to first make sure the predictors `X` contain strictly positive relative abundances. This can be achieved by either adding a pseudocount of 1 to all entries of `X` before total sum normalization or applying a Bayesian imputation method as done in **selbal**. Here we adopt the former strategy for simplicity. 
 
+```{r zero_handling, message=FALSE, warning=FALSE}
+X.adjusted = sweep(X+1,rowSums(X+1),MARGIN = 1, FUN='/')
+```
 
 # Main Function
 
 The main functions of the **slr** package are `slr` and `cv.slr`. The function `slr` requires a tuning parameter which can be chosen using the `cv.slr` function. For example, we can perform 10-fold cross-validation on the HIV data set to determine the optimal tuning parameter. 
 
-```{r cv, eval=FALSE}
-library(slr)
-y2 = ifelse(y == "Pos", 1, 0)
-
-cv.out <- cv.slr(X_gbm,y2, screen.method='wald', cluster.method ='spectral', response.type = 'binary', threshold = NULL,type.measure = 'auc',trace.it = TRUE)
-
-df = with(cv.out,
-     data.frame(threshold = threshold, AUC = cvm, AUChi=cvm+cvsd, AUClow=cvm-cvsd))
-
-ggplot(df,aes(x=threshold,y=AUC)) + 
-  geom_point(col="#f05454") + 
-  geom_errorbar(aes(ymin = AUClow,ymax=AUChi),col="#30475e") + 
-  geom_vline(xintercept=c(cv.out$threshold.1se,cv.out$threshold.min), linetype="dashed") +
-  ylab('1-AUC') +
-  theme_bw()
-
+```{r cv}
+set.seed(1)
+cv.out <- cv.slr(X.adjusted, y, screen.method='wald', cluster.method ='spectral', response.type = 'binary', threshold = NULL, type.measure = 'auc', trace.it = TRUE, plot = TRUE)
 ```
+
+If `plot=TRUE`, the cross-validation function will display a plot of the cross-validation results. In this example, the x-axis is the range of different threshold values tested. Note the threshold values are not evenly spaced, because they depend on the marginal association between each input variable and the response. 
+
+The cross-validation function returns two optimal tuning parameters, colored by the blue and red dashed vertical lines. The red line `threshold.min` is the threshold that minimizes the cross-validation deviance measure, which is AUC in the HIV data set. The blue line `threshold.1se` is the largest threshold such that the deviance is within 1 standard error of the minimum. The second choice usually leads to a sparser model. For illustration purpose, we use `threshold.1se` as the optimal tuning parameter and refit the model. For the refitted model, we can print the selected variables using `fit$bp` or show the ROC curve by calling the `pROC::roc` function. 
+
+```{r slr}
+fit <- slr(X.adjusted, y, screen.method='wald', cluster.method ='spectral', response.type = 'binary', threshold = cv.out$threshold.1se,positive.slope = TRUE)
+fit$bp
+
+roc.slr <- pROC::roc(fit$glm.fit$y ~ fit$glm.fit$fitted.values)
+plot(roc.slr, print.auc=TRUE, main='slr')
+```
+
+It is of interest to compare the model fit from `slr` to `selbal`. From the [vignette](https://htmlpreview.github.io/?https://github.com/malucalle/selbal/blob/master/vignettes/vignette.html) of the **selbal** package, we know that `selbal` selected a balance formed by *f_Erysipelotrichaceae_g_unclassified* and *f_Ruminococcaceae_g_Incertae_Sedis*. Therefore, we fit a logistic regression model with the predictor being the balance selected by `selbal` and plot its ROC curve. The AUC from `selbal` model fit is 0.722, which is lower than that of the `slr` model fit.      
+
+```{r selbal}
+train.selbal <- data.frame(y=y,x=log(X.adjusted[,colnames(X.adjusted)=="f_Erysipelotrichaceae_g_unclassified"]) - log(X.adjusted[,colnames(X.adjusted)=="f_Ruminococcaceae_g_Incertae_Sedis"]))
+model.selbal <- glm(y ~ x, family="binomial",data=train.selbal)
+train.selbal$predicted <- predict(model.selbal, type="response")
+roc.selbal <- pROC::roc(y ~ predicted, data = train.selbal)
+plot(roc.selbal, print.auc=TRUE, main='selbal')
+```
+
+# Session Info
 
 ```{r}
-fit <- slr(X_gbm,y2, screen.method='wald', cluster.method ='spectral', response.type = 'binary', threshold = 0.7)
-
+sessionInfo()
 ```
 
-# To Do
 
-The function `balance.fromContrast` does not need to cycle through all variables. Instead, we can focus only on variables included in the balance. 
-
-Define AUC in the usual way, but when defining cvm and cvsd remember to customize the if condition. 
