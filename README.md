@@ -6,14 +6,16 @@
 
 ## How to install
 
-`devtools::install_github(repo = "drjingma/slr")`
+`devtools::install_github(repo = "drjingma/slr",build_vignettes=T)`
 
 ## How to use
 
 Once installed, you can call the library and check out the help functions
 
 `library(slr)`
-
 `?slr`
 
-Please read the associated [slr vignette](https://htmlpreview.github.io/?https://github.com/drjingma/slr/blob/master/vignettes/slr.html). 
+Please read the associated [slr vignette](https://htmlpreview.github.io/?https://github.com/drjingma/slr/blob/master/vignettes/slr.html) or in R 
+
+`browseVignettes(package='slr')`
+
