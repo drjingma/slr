@@ -17,7 +17,8 @@ cv.slr(
   nfolds = 10,
   foldid = NULL,
   weights = NULL,
-  trace.it = FALSE
+  trace.it = FALSE,
+  plot = FALSE
 )
 }
 \arguments{
@@ -46,6 +47,8 @@ cv.slr(
 \item{weights}{Observation weights. Default is 1 per observation.}
 
 \item{trace.it}{If \code{trace.it=TRUE}, then progress bars are displayed.}
+
+\item{plot}{If \code{TRUE}, then a visualization of the cross-validation results is displayed.}
 }
 \value{
 An object of class \code{"cv.slr"} is returned, which is a list with the ingredients of cross-validation fit.
@@ -54,7 +57,7 @@ An object of class \code{"cv.slr"} is returned, which is a list with the ingredi
 \item{cvsd}{The estimate of standard error of \code{cvm}.}
 \item{foldid}{The fold assignments used.}
 \item{threshold.min}{Value of \code{threshold} that gives minimum \code{cvm}.}
-\item{threshold.1se}{Largest value of \code{threshoold} such that error if within 1 standard error of the minimum. This choice usually leads to a sparser set of selected variables.}
+\item{threshold.1se}{Largest value of \code{threshoold} such that the cross-validation error is within 1 standard error of the minimum. This choice usually leads to a sparser set of selected variables.}
 \item{index}{A one column matrix with the indices of \code{threshold.min} and \code{threshold.1se} in the sequence of all threshold values.}
 }
 \description{
@@ -64,30 +67,15 @@ Performs k-fold cross-validation for \code{slr} and returns an optimal value for
 Please see \code{slr} for details regarding the choice of \code{s0.perc} and \code{zeta}.
 }
 \examples{
-# Set parameters ----
-set.seed(1)
-p <- 30    # number of variables
-n <- 100   # number of samples
-sigy <- 0.25   # noise level in regression
-sigx <- 0.25   # noise level in covariates
-r <- 2
-s <- 2
 
-# Generate x from a latent variable model ----
-U1 <- runif(n,-0.5,0.5)
-alpha1 <- 5*c(rep(1,r)/r,-rep(1,s)/s,rep(0,p-1-r-s)) # the first 4 variables define a balance
-Sigma <- diag(1,p-1)
-rownames(Sigma) <- colnames(Sigma) <- paste0('s',1:(p-1))
-xALR <- tcrossprod(as.matrix(U1), as.matrix(alpha1)) + mvtnorm::rmvnorm(n,mean=rep(0,p-1),sigma = Sigma) * sigx
-x <- alrinv(xALR)
-colnames(x) <- paste0('s',1:p)
+HIV <- load_data() # Load HIV data
+X <- HIV[,1:60]
+y <- ifelse(HIV[,62] == "Pos", 1, 0)
+X.adjusted <- sweep(X+1,rowSums(X+1),MARGIN = 1, FUN='/')# zero handling
 
-# Generate y from a latent variable model ----
-y <- U1 + rnorm(n) * sigy
-
-# Run slr ----
-fit <- cv.slr(x,y,screen.method='wald',cluster.method ='hierarchical',response.type = 'continuous',nfolds=10)
-plot(fit$threshold, fit$cvm)
+cv.out <- cv.slr(X.adjusted, y, screen.method='wald', cluster.method ='spectral',
+                 response.type = 'binary', threshold = NULL,type.measure = 'auc',
+                 trace.it = TRUE, plot = TRUE)
 
 }
 \seealso{

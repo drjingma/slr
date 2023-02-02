@@ -39,10 +39,8 @@ slr(
 An object of class \code{"slr"} is returned, which is a list with
 
 \item{bp}{The binary partition of selected variables. A positive value of 1 indicates the variable is in the numerator, while -1 indicates a denominator variable.}
-\item{Aitchison.var}{The Aitchison variation matrix for the selected variables.}
-\item{cluster.mat}{The matrix used in clustering selected variables into two groups. For spectral clustering, it corresponds to the Aitchison similarity matrix. For hierarchical clustering, this is the Aitchison variation matrix.}
 \item{feature.scores}{The feature scores for all variables.}
-\item{theta}{A vector of length 2 consisting of the intercept and slope when fitting the balance regression ordinary least squares.}
+\item{glm.fit}{The generalized linear model fit from a univariate balance regression. }
 }
 \description{
 \code{slr} fits a balance regression model in which the balance is defined by a sparse set of input variables.
@@ -62,29 +60,15 @@ When spectral clustering is used, it can be beneficial to perturb the Aitchison 
 For more details on regularized spectral clustering of networks, see Amini et al. (13').
 }
 \examples{
-# Set parameters ----
-set.seed(1)
-p <- 30    # number of variables
-n <- 100   # number of samples
-sigy <- 0.25   # noise level in regression
-sigx <- 0.25   # noise level in covariates
-r <- 2
-s <- 2
 
-# Generate x from a latent variable model ----
-U1 <- runif(n,-0.5,0.5)
-alpha1 <- 5*c(rep(1,r)/r,-rep(1,s)/s,rep(0,p-1-r-s)) # the first 4 variables define a balance
-Sigma <- diag(1,p-1)
-rownames(Sigma) <- colnames(Sigma) <- paste0('s',1:(p-1))
-xALR <- tcrossprod(as.matrix(U1), as.matrix(alpha1)) + mvtnorm::rmvnorm(n,mean=rep(0,p-1),sigma = Sigma) * sigx
-x <- alrinv(xALR)
-colnames(x) <- paste0('s',1:p)
-
-# Generate y from a latent variable model ----
-y <- U1 + rnorm(n) * sigy
+HIV <- load_data() # Load HIV data
+X <- HIV[,1:60]
+y <- ifelse(HIV[,62] == "Pos", 1, 0)
+X.adjusted <- sweep(X+1,rowSums(X+1),MARGIN = 1, FUN='/') # zero handling
 
 # Run slr ----
-fit <- slr(x,y,screen.method='wald',cluster.method ='hierarchical',response.type = 'continuous',threshold = 0.9)
+fit <- slr(X.adjusted, y, screen.method='wald', cluster.method ='spectral',
+           response.type = 'binary', threshold = 0.9, positive.slope = TRUE)
 fit$bp
 }
 \references{
