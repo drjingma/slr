@@ -13,9 +13,11 @@
 Once installed, you can call the library and check out the help functions
 
 `library(slr)`
+
 `?slr`
 
-Please read the associated [slr vignette](https://htmlpreview.github.io/?https://github.com/drjingma/slr/blob/master/vignettes/slr.html) or in R 
+You can read the associated vignette in R directly if `build_vignettes=T`:  
 
 `browseVignettes(package='slr')`
 
+You can also find the vignette [here](https://htmlpreview.github.io/?https://github.com/drjingma/slr/blob/master/vignettes/slr.html).
