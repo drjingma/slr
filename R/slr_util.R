@@ -280,7 +280,7 @@ load_data <- function() {
 #' @format This data set is organized as a \code{data.frame} with the first 447 columns being genera counts, the next
 #' column indicating the sample's status (UC vs Control), and the last column indicating the cohort.
 #'
-#' @author Jing Ma (\email{jingma@fredhutch.org})
+#' @author Jing Ma (\email{crystal.jing.ma@gmail.com})
 #'
 #' @references
 #'

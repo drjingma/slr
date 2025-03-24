@@ -172,7 +172,7 @@ getFeatureScores = function(x, y, covar=NULL, family){
 #'
 #' @author Jing Ma and Kristyn Pantoja.
 #'
-#' Maintainer: Jing Ma (\url{jingma@fredhutch.org})
+#' Maintainer: Jing Ma (\url{crystal.jing.ma@gmail.com})
 #'
 #' @seealso \code{cv.slr}
 #'
@@ -583,7 +583,7 @@ getOptcv <- function(threshold, cvm, cvsd){
 #'
 #' @author Jing Ma and Kristyn Pantoja.
 #'
-#' Maintainer: Jing Ma (\url{jingma@fredhutch.org})
+#' Maintainer: Jing Ma (\url{crystal.jing.ma@gmail.com})
 #'
 #' @seealso \code{slr}
 #'
