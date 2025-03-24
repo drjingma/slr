@@ -44,10 +44,8 @@ AitchVar = function(x, y){
   stats::var(log(x) - log(y))
 }
 
-AitchVarVec = Vectorize(AitchVar)
-
 getAitchisonVar = function(x){
-  outer(X = x, Y = x, FUN = AitchVarVec)
+  compositions::variation(x = compositions::acomp(x))
 }
 
 sbp.fromHclust <- function(hclust){
@@ -97,19 +95,145 @@ sbp.fromHclust <- function(hclust){
   sbp
 }
 
-balance.fromBP <- function(X, bp){
+# Transform Samples with the ilr of a Balance
+#
+#  x A matrix with rows as samples (N) and columns as components (D).
+#  contrast A vector. One column of a serial binary partition matrix
+#  with values [-1, 0, 1] describing D components.
+#
+#  A transformation of samples for the balance provided.
+balance.fromContrast <- function(x, contrast){
 
-  if(length(bp) > ncol(X)) stop("bp must have length no greater than ncol(x).")
-  if(any(!bp %in% c(-1, 1))) stop("bp must contain [-1, 1] only.")
-  if(length(bp) < 2) stop("bp must have length no smaller than 2.")
+  if(length(contrast) != ncol(x)) stop("Contrast must have length ncol(x) = D.")
+  if(any(!contrast %in% c(-1, 0, 1))) stop("Contrast must contain [-1, 0, 1] only.")
 
-  logX <- log(X[, match(names(bp),colnames(X))])
-  ipos <- rowMeans(logX[, bp == 1, drop = FALSE])
-  ineg <- rowMeans(logX[, bp == -1, drop = FALSE])
+  lpos <- sum(contrast == 1)
+  lneg <- sum(contrast == -1)
+  const <- sqrt((lpos*lneg)/(lpos+lneg))
 
-  ipos - ineg
+  logX <- log(x)
+  ipos <- rowMeans(logX[, contrast == 1, drop = FALSE])
+  ineg <- rowMeans(logX[, contrast == -1, drop = FALSE])
+
+  const * log(exp(ipos) / exp(ineg))
 }
 
+# Compute Balances from an SBP Matrix
+#
+#  x A matrix with rows as samples (N) and columns as components (D).
+#  y A serial binary partition matrix with rows as components (D) and
+#  columns as balances (D-1).
+#
+# A transformation of samples for each balance in the SBP matrix.
+balance.fromSBP <- function(x, y){
+
+  if(!identical(colnames(x), rownames(y))){
+
+    stop("Component names for data matrix and balance matrix do not match.")
+  }
+
+  x <- as.matrix(x)
+
+  if(any(x == 0)){
+
+    message("Alert: Replacing 0s with next smallest value to calculate balances.")
+    zeros <- x == 0
+    x[zeros] <- min(x[!zeros])
+  }
+
+  res <- apply(y, 2, function(z) balance.fromContrast(x, z))
+  rownames(res) <- as.character(1:nrow(res))
+  return(res)
+}
+
+# Make response for cox regression
+#
+# Internal function to make the response y passed to slr suitable
+# for cox regression (i.e. with family = "cox"). Sanity checks are performed
+# here too.
+#
+# If y is a class "Surv" object, this function returns y with no changes. If
+# y is a two-column matrix with columns named 'time' and 'status', it is
+# converted into a "Surv" object.
+#
+#  y Response variable. Either a class "Surv" object or a two-column
+# matrix with columns named 'time' and 'status'.
+#
+#  A class "Surv" object.
+#
+#  survival Surv
+response.coxnet <- function(y) {
+  if (any(is.na(y))) stop(paste0("NAs encountered in response, not allowed"))
+
+  # if Surv object, check that it is of correct type and perform sanity checks
+  # One sanity check is that it have column names. If Surv() is called with a one-column matrix for
+  # time, the name is lost
+  # if all good, return with no changes
+  if (survival::is.Surv(y)) {
+    if (attr(y, "type") == "right") {
+      if (any(y[, 1] <= 0))
+        stop("Non-positive event times encountered; not permitted for Cox family")
+      colnames(y) <- c("time","status")
+      return(y)
+    } else if (attr(y, "type") == "counting") {
+      if (any(y[, 1] < 0) || any(y[, 2] <= 0))
+        stop(paste("Negative start/non-positive stop times encountered;",
+                   "not permitted for Cox family"))
+      if (any(y[, 1] >= y[, 2]))
+        stop("Some rows have start time >= stop time; not permitted")
+      colnames(y) <- c("start","stop","status")
+      return(y)
+    } else {
+      stop("cox.path() only supports 'Surv' objects of type 'right' or 'counting'")
+    }
+  }
+
+  # if two-column matrix passed, make it into a Surv object
+  if (!is.matrix(y) || !all(match(c("time","status"),dimnames(y)[[2]],0)))
+    stop(paste0("Cox model requires a matrix with columns 'time' (>0) and ",
+                "'status' (binary) as a response; a 'Surv' object suffices"),
+         call. = FALSE)
+  ty <- as.double(y[,"time"])
+  tevent <- as.double(y[,"status"])
+  if (any(ty <= 0))
+    stop("negative event times encountered; not permitted for Cox family")
+  yob <- survival::Surv(ty, tevent)
+  colnames(yob) <- c("time","status")
+  return(yob)
+}
+
+# get log contrast coefficients from a regression coefficient in the balance regression
+balReg2llc = function(theta, sbp, normalized = TRUE){
+  # theta defined in manuscript, i.e., coefficient of normalized balance
+  if(!is.matrix(sbp)) sbp = matrix(sbp)
+  if(ncol(sbp) != length(theta)){
+    stop("SBP and coefficients do not match!")
+  }
+  kplus = apply(sbp, 2, function(col) sum(col == 1))
+  kminus = apply(sbp, 2, function(col) sum(col == -1))
+  const <- sqrt( (kplus * kminus)/(kplus + kminus) )
+
+  reciprocals = matrix(
+    0, nrow = nrow(sbp), ncol = ncol(sbp))
+  for(i in 1:ncol(sbp)){
+    if (normalized){
+      reciprocals[sbp[, i] == 1, i] = const[i] / kplus[i]
+      reciprocals[sbp[, i] == -1, i] = - const[i] / kminus[i]
+    } else {
+      reciprocals[sbp[, i] == 1, i] = 1 / kplus[i]
+      reciprocals[sbp[, i] == -1, i] = -1 / kminus[i]
+    }
+  }
+
+  ReciprocalstimesCoeffs = matrix(
+    NA, nrow = nrow(sbp), ncol = ncol(sbp))
+  for(i in 1:ncol(ReciprocalstimesCoeffs)){
+    ReciprocalstimesCoeffs[, i] = reciprocals[, i] * theta[i]
+  }
+  beta = rowSums(ReciprocalstimesCoeffs)
+  names(beta) = rownames(sbp)
+  return(beta)
+}
 #' Load the HIV data set
 #' @description Load the HIV data set from the selbal R package.
 #'
@@ -138,3 +262,29 @@ load_data <- function() {
     stop("Install package from https://github.com/malucalle/selbal first.")
   }
 }
+
+
+#' Microbiome composition related to ulcerative colitis
+#'
+#' @name UC
+#' @docType data
+#' @description
+#'
+#' A processed microbiome data set consisting of the counts of 447 different genera in a group of 132 subjects.
+#' There are two independent cohorts, which is given by the column \code{cohort}.
+#' There are 34 controls and 53 UC subjects in the discovery cohort (\code{cohort=='PRISM'}),
+#' and 22 controls and 23 UC subjects in the validation cohort (\code{cohort=='Validation'}).
+#' For details on data preprocessing, please see documentation on GitHub \url{https://github.com/drjingma/LogRatioReg/tree/master}.
+#'
+#' @usage data(UC)
+#' @format This data set is organized as a \code{data.frame} with the first 447 columns being genera counts, the next
+#' column indicating the sample's status (UC vs Control), and the last column indicating the cohort.
+#'
+#' @author Jing Ma (\email{jingma@fredhutch.org})
+#'
+#' @references
+#'
+#' \url{https://doi.org/10.1038/s41564-018-0306-4}
+#'
+#' @keywords data
+NULL

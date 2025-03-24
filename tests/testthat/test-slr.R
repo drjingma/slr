@@ -5,8 +5,9 @@ test_that("slr works", {
   X.adjusted <- sweep(X+1,rowSums(X+1),MARGIN = 1, FUN='/')
   y <- ifelse(HIV[,62] == "Pos", 1, 0)
 
-  bp <- c(-1, 1, 1, 1, -1)
-  names(bp) <- c('g_Bacteroides','g_RC9_gut_group', 'f_vadinBB60_g_unclassified', 'g_Oribacterium','f_Erysipelotrichaceae_g_unclassified')
+  bp <- matrix(c(1, -1, -1, 1))
+  rownames(bp) <- c('g_Bacteroides','g_RC9_gut_group', 'f_vadinBB60_g_unclassified','f_Erysipelotrichaceae_g_unclassified')
+  colnames(bp) <- 'z1'
 
-  expect_equal(slr(X.adjusted, y, screen.method='wald', cluster.method ='spectral', response.type = 'binary', threshold = 0.9966)$bp, bp)
+  expect_equal(slr(X.adjusted, y, method ='PC', family = 'binomial', threshold = 0.998)$sbp, bp)
 })

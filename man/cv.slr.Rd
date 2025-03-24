@@ -5,16 +5,15 @@
 \title{Cross Validation for Supervised Log Ratio}
 \usage{
 cv.slr(
-  X,
+  x,
   y,
-  screen.method = c("correlation", "wald"),
-  cluster.method = c("spectral", "hierarchical"),
-  response.type = c("continuous", "binary"),
+  covar = NULL,
+  family = c("cox", "gaussian", "binomial"),
   threshold = NULL,
-  s0.perc = 0,
+  method = c("spectral clustering", "hierarchical clustering", "constrained PC"),
   zeta = 0,
   type.measure = c("default", "mse", "deviance", "class", "auc", "mae", "C", "accuracy"),
-  nfolds = 10,
+  nfolds = 5,
   foldid = NULL,
   weights = NULL,
   trace.it = FALSE,
@@ -22,25 +21,23 @@ cv.slr(
 )
 }
 \arguments{
-\item{X}{A sample by variable matrix of strictly positive relative abundances (\code{n} by \code{p}). This matrix should not contain any zeros.}
+\item{x}{A sample by variable matrix of strictly positive relative abundances (\code{n} by \code{p}). This matrix should not contain any zeros.}
 
 \item{y}{The response vector of length \code{n}.}
 
-\item{screen.method}{Method of variable screening: could be correlation based ("correlation") or wald score based ("wald"). Default is \code{wald}.}
+\item{covar}{A numeric matrix, containing additional covariates that you want to adjust for. If \code{NULL}, only feature abundances in \code{x} are used to predict the response variable.}
 
-\item{cluster.method}{Method of clustering: "spectral" or "hierarchical". Default is \code{spectral}.}
+\item{family}{Type of the response variable: could be \code{gaussian}, \code{binomial} or \code{cox}.}
 
-\item{response.type}{Type of the response variable: could be "continuous" or "binary".}
+\item{threshold}{Nonnegative values between 0 and 1 used to screen variables. If \code{NULL}, the function will compute the threshold values internally.}
 
-\item{threshold}{Optional user-supplied threshold sequence; default is \code{NULL} and \code{cv.slr} chooses its own sequence, which is recommended.}
+\item{method}{Method used to compute the principal balance. Could be \code{spectral clustering}, \code{hierarchical clustering} or \code{constrained PC}. See Details.}
 
-\item{s0.perc}{The percentile of standard deviation values added to the denominator of the wald score statistic. Default is 0.}
+\item{zeta}{A small positive value used to perturb the Aitchison similarity matrix when spectral clustering is used. Default is 0. See Details.}
 
-\item{zeta}{A small positive value used to perturb the Aitchison similarity matrix when spectral clustering is used. Default is 0.}
+\item{type.measure}{Loss used for cross-validation. If \code{family='gaussin'}, then \code{type.measure="mse"}. For two-class logistic regression, \code{type.measure="auc"}. For cox regression, \code{type.measure="C"}.}
 
-\item{type.measure}{Loss used for cross-validation. If \code{response.type='continuous'}, then \code{type.measure="mse"}. For two-class logistic regression, \code{type.measure="auc"}.}
-
-\item{nfolds}{Number of folds. Default is 10.}
+\item{nfolds}{Number of folds. Default is 5.}
 
 \item{foldid}{An optional vector of values between 1 and \code{nfold} identifying which fold each observation is in. If supplied, \code{nfold} can be missing.}
 
@@ -64,19 +61,22 @@ An object of class \code{"cv.slr"} is returned, which is a list with the ingredi
 Performs k-fold cross-validation for \code{slr} and returns an optimal value for \code{threshold}.
 }
 \details{
-Please see \code{slr} for details regarding the choice of \code{s0.perc} and \code{zeta}.
+The function runs \code{slr} \code{nfolds} times to compute the fit with each of the folds omitted. The error is accumulated, and
+the average error and standard deviation over the folds is computed. Note that the results of \code{cv.slr} are random, since the folds are selected at random.
+Users can reduce this randomness by running \code{cv.slr} many times and averaging the error curves.
+
+Please see \code{slr} for details regarding the choice of method and choice of \code{zeta}.
 }
 \examples{
-
+library(compositions)
 HIV <- load_data() # Load HIV data
 X <- HIV[,1:60]
 y <- ifelse(HIV[,62] == "Pos", 1, 0)
 X.adjusted <- sweep(X+1,rowSums(X+1),MARGIN = 1, FUN='/')# zero handling
 
-cv.out <- cv.slr(X.adjusted, y, screen.method='wald', cluster.method ='spectral',
-                 response.type = 'binary', threshold = NULL,type.measure = 'auc',
-                 trace.it = TRUE, plot = TRUE)
-
+cv.out <- cv.slr(X.adjusted, y, method ='PC',
+                 family = 'binomial',type.measure = 'auc',
+                 trace.it = TRUE)
 }
 \seealso{
 \code{slr}

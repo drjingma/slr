@@ -2,62 +2,70 @@
 % Please edit documentation in R/slr.R
 \name{slr}
 \alias{slr}
-\title{Supervised Log Ratio}
+\title{Supervised Log Ratio for supervised principal balance analysis}
 \usage{
 slr(
-  X,
+  x,
   y,
-  screen.method = c("correlation", "wald"),
-  cluster.method = c("spectral", "hierarchical"),
-  response.type = c("survival", "continuous", "binary"),
+  covar = NULL,
+  family = c("gaussian", "binomial", "cox"),
   threshold,
-  s0.perc = 0,
+  method = c("constrained PC", "spectral clustering", "hierarchical clustering"),
   zeta = 0,
-  positive.slope = FALSE
+  feature.scores = NULL,
+  Aitchison.var = NULL
 )
 }
 \arguments{
-\item{X}{A sample by variable matrix of strictly positive relative abundances (\code{n} by \code{p}). This matrix should not contain any zeros. See details.}
+\item{x}{A matrix of nobs by nvars strictly positive relative abundances (\code{n} by \code{p}). This matrix should not contain any zeros. See Details section.}
 
-\item{y}{The response vector of length \code{n}.}
+\item{y}{Response variable. Quantitative for \code{family="gaussian"}. For \code{family="binomial"} should be either a factor with two levels. For \code{family="cox"}, preferably a \code{Surv} object from the survival package: see Details section for more information.}
 
-\item{screen.method}{Method of variable screening: could be correlation based ("correlation") or wald score based ("wald"). Default is \code{wald}.}
+\item{covar}{A numeric matrix, containing additional covariates that you want to adjust for. If \code{NULL}, only feature abundances in \code{x} are used to predict the response variable.}
 
-\item{cluster.method}{Method of clustering: "spectral" or "hierarchical". Default is \code{spectral}.}
-
-\item{response.type}{Type of the response variable: could be "continuous" or "binary".}
+\item{family}{Type of the response variable: could be \code{gaussian}, \code{binomial} or \code{cox}.}
 
 \item{threshold}{A nonnegative constant between 0 and 1. If \code{NULL}, then no variable screening is performed.}
 
-\item{s0.perc}{The percentile of standard deviation values added to the denominator of the wald score statistic. Default is 0. See details.}
+\item{method}{Method used to compute the principal balance. Could be \code{spectral clustering}, \code{hierarchical clustering} or \code{constrained PC}. See Details.}
 
-\item{zeta}{A small positive value used to perturb the Aitchison similarity matrix when spectral clustering is used. Default is 0. See details.}
+\item{zeta}{A small positive value used to perturb the similarity matrix when \code{method='spectral'}. Default is 0. See details.}
 
-\item{positive.slope}{Logical flag indicating whether to define the balance such that its corresponding slope estimate is positive. Default is \code{TRUE}.}
+\item{feature.scores}{Optional vector of the feature-level score statistics. If \code{NULL}, the function will compute the feature scores internally.}
+
+\item{Aitchison.var}{Optional matrix of the Aitchison variation matrix. If \code{NULL}, the function will compute the Aitchison variation internally. Only used if \code{method} is spectral clustering or hierarchical clustering.}
 }
 \value{
 An object of class \code{"slr"} is returned, which is a list with
 
-\item{bp}{The binary partition of selected variables. A positive value of 1 indicates the variable is in the numerator, while -1 indicates a denominator variable.}
+\item{threshold}{The threshold used for variable screening.}
+\item{zeta}{The parameter used to regularize spectral clustering.}
+\item{family}{Type of the response variable.}
+\item{sbp}{The binary partition of selected variables. A positive value of 1 indicates the variable is in the numerator, while -1 indicates a denominator variable.}
+\item{log-contrast coefficients}{The coefficients in the linear log-contrast model.}
 \item{feature.scores}{The feature scores for all variables.}
-\item{glm.fit}{The generalized linear model fit from a univariate balance regression. }
+\item{glm}{The generalized linear model fit using balances as predictors.}
 }
 \description{
 \code{slr} fits a balance regression model in which the balance is defined by a sparse set of input variables.
 }
 \details{
-\code{slr} first uses a screening procedure to identify the active variables correlated with the response \code{y}.
-Essentially, it computes the univariate regression coefficients for centered log ratio transformed \code{X} and
-forms a reduced data matrix with variables whose univariate coefficients exceed a \code{threshold} in absolute value
-(the threshold is chosen via cross-validation). Then, it performs clustering of the active variables on a suitable dissimilarity
-derived from the reduced data matrix to get 2 clusters. Finally, \code{slr} uses the resulting balance to predict \code{y}.
+\code{slr} is a computationally efficient method for selecting balance biomarkers.
+\code{slr} consists of two main steps. First, it computes the univariate wald statistic for regressing \code{y} onto the centered log ratio transformed \code{x} and
+forms a reduced data matrix with variables whose univariate wald statistic exceed a \code{threshold} in absolute value
+(the threshold is chosen via cross-validation). Next, \code{slr} uses the leading principal balance (see details in Martín-Fernández et al. 2018) on the reduced data to
+define a balance biomarker. \code{slr} can be viewed as a semi-supervised approach: it leverages the response variable to filter out inactive features
+while using principal balance analysis to capture latent structures in the data. To obtain the leading principal balance, \code{slr} uses the constrained PC approach
+(\code{method='PC'}) or clustering (\code{'spectral'}, \code{'hierarchical'}). For clustering based methods, \code{slr} uses the Aitchison variation matrix
+on the reduced data as the distance matrix. When spectral clustering is used, it can be beneficial to perturb the Aitchison similarity matrix,
+obtained from the Aitchison variation, with a small positive value to improve the clustering performance. This leads to regularized spectral clustering. For more details on
+regularized spectral clustering of networks, see Amini et al. (2013). When \code{method='hierarchical'}, ward hierarchical clustering with the \code{ward.D2} agglomeration is used.
 
-The design matrix \code{X} should not contain any zeros. In general, zeros in raw data should be imputed using a pseudocount or Bayesian method prior to applying \code{slr}.
+By default, \code{slr} only uses the leading principal balance of the reduced data matrix, but more components can be used for more accurate prediction.
+However, for easier interpretation and faster computation, we recommend only using the leading principal balance, which generally works sufficiently well.
 
-When the wald score statistic is used,
-
-When spectral clustering is used, it can be beneficial to perturb the Aitchison similarity matrix with a small positive value to improve the clustering performance. This leads to regularized spectral clustering.
-For more details on regularized spectral clustering of networks, see Amini et al. (13').
+The design matrix \code{x} cannot contain any zeros. In general, zeros in raw data can be imputed using a pseudocount or
+Bayesian methods prior to applying \code{slr}.
 }
 \examples{
 
@@ -67,11 +75,13 @@ y <- ifelse(HIV[,62] == "Pos", 1, 0)
 X.adjusted <- sweep(X+1,rowSums(X+1),MARGIN = 1, FUN='/') # zero handling
 
 # Run slr ----
-fit <- slr(X.adjusted, y, screen.method='wald', cluster.method ='spectral',
-           response.type = 'binary', threshold = 0.9, positive.slope = TRUE)
-fit$bp
+fit <- slr(X.adjusted, y, method ='PC',
+           family = 'binomial', threshold = 0.9)
+fit$sbp
 }
 \references{
+Martín-Fernández, J. A., Pawlowsky-Glahn, V., Egozcue, J. J., & Tolosona-Delgado, R. (2018). Advances in principal balances for compositional data. Mathematical Geosciences, 50, 273-298.
+
 Amini, A. A., Chen, A., Bickel, P. J., & Levina, E. (2013). Pseudo-likelihood methods for community detection in large sparse networks. Annals of Statistics. 41(4): 2097-2122
 }
 \seealso{
