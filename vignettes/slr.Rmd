@@ -7,6 +7,8 @@ vignette: >
   %\VignetteIndexEntry{use-slr}
   %\VignetteEngine{knitr::rmarkdown}
   %\VignetteEncoding{UTF-8}
+bibliography: bibli.bib
+
 ---
 
 ```{r, include = FALSE}
@@ -18,65 +20,123 @@ knitr::opts_chunk$set(
 
 # Getting Started
 
-In this vignette, we will use a publicly available HIV data set to illustrate how to use the **slr** package to perform regression analysis of compositional data. 
+In this vignette, we will use publicly available data sets to illustrate how to use the **slr** package to perform regression analysis of compositional data. The main functions of the **slr** package are `slr` and `cv.slr`. The function `slr` requires a tuning parameter which can be chosen using the `cv.slr` function. 
 
-To load this data set, one only needs to load the **selbal** package. `HIV` is a data frame with 155 rows (samples) and 62 columns (variables). The first 60 variables measure the counts of bacterial species at the genus taxonomy rank. The last column `HIV_Status` is a factor indicating the HIV infection status: Pos/Neg if an individual is HIV1 positive/negative. There is also a column `MSM` which is an HIV risk factor, Men who has sex with men (MSM) or not (nonMSM). For illustration purpose, we ignore the `MSM` variable and only use the 60 compositional variables to predict HIV infection status. 
 
-```{r input}
+# HIV Infection and Microbiome
+
+To load this data set, one only needs to load the **selbal** package. `HIV` is a data frame with 155 rows (samples) and 62 columns (variables). The first 60 variables measure the counts of bacterial species at the genus taxonomy rank. The last column `HIV_Status` is a factor indicating the HIV infection status: Pos/Neg if an individual is HIV1 positive/negative. There is also a column `MSM` which is an HIV risk factor, Men who has sex with men (MSM) or not (nonMSM). For catogorical covariates, it is important to code them as dummy variables. 
+
+```{r hiv_input}
 library(slr)
+suppressMessages(library(compositions))
+suppressMessages(library(selbal))
+
 HIV <- load_data() # Load HIV data
 X <- HIV[,1:60]
 y <- ifelse(HIV[,62] == "Pos", 1, 0)
+z <- data.frame(MSM = as.numeric(as.factor(HIV[,61]))-1) # 
 ```
 
-Before regression analysis, we need to first make sure the predictors `X` contain strictly positive relative abundances. This can be achieved by either adding a pseudocount of 1 to all entries of `X` before total sum normalization or applying a Bayesian imputation method as done in **selbal**. Here we adopt the former strategy for simplicity. 
+Before regression analysis, we need to first make sure the predictors `X` contain strictly positive relative abundances. This can be achieved by either adding a pseudocount of 1 to all entries of `X` before total sum normalization or applying a Bayesian imputation method as done in **selbal**. 
 
-```{r zero_handling}
-X.adjusted = sweep(X+1,rowSums(X+1),MARGIN = 1, FUN='/')
+```{r hiv_zero_handling}
+X.adjusted <- selbal::cmultRepl2(X)
 ```
 
-# Main Function
+Next, we perform 5-fold cross-validation to determine the optimal tuning parameter. 
 
-The main functions of the **slr** package are `slr` and `cv.slr`. The function `slr` requires a tuning parameter which can be chosen using the `cv.slr` function. For example, we can perform 10-fold cross-validation on the HIV data set to determine the optimal tuning parameter. 
-
-```{r cv, warning=FALSE}
-set.seed(10)
-cv.out <- cv.slr(X.adjusted, y, screen.method='wald', cluster.method ='spectral', 
-                 response.type = 'binary', threshold = NULL, 
+```{r hiv_cv, warning=FALSE}
+set.seed(101)
+cv.out <- cv.slr(X.adjusted, y, covar = z, method ='PC', 
+                 family = 'binomial', threshold = NULL, 
                  type.measure = 'auc', trace.it = TRUE, plot = TRUE)
 ```
 
-If `plot=TRUE`, the cross-validation function will display a plot of the cross-validation results. In this example, the x-axis is the range of different threshold values tested. Note the threshold values are not evenly spaced, because they depend on the marginal association between each input variable and the response. 
+If `plot=TRUE`, the function will display a plot of the cross-validation results. In this example, the x-axis is the range of different threshold values tested. Note the threshold values are not evenly spaced, because they depend on the marginal association between each input variable and the response. 
 
-The cross-validation function returns two optimal tuning parameters, colored by the blue and red dashed vertical lines. The red line `threshold.min` is the threshold that minimizes the cross-validation deviance measure, which is AUC in the HIV data set. The blue line `threshold.1se` is the largest threshold such that the deviance is within 1 standard error of the minimum. The second choice usually leads to a sparser model. For illustration purpose, we use `threshold.1se` as the optimal tuning parameter and refit the model. For the refitted model, we can print the selected variables using `fit$bp` or show the ROC curve by calling the `pROC::roc` function. 
+The cross-validation function returns two optimal tuning parameters, colored by the blue and red dashed vertical lines. The red line `threshold.min` is the threshold that minimizes the cross-validation deviance measure, which is AUC in the HIV data set. The blue line `threshold.1se` is the largest threshold such that the deviance is within 1 standard error of the minimum. The second choice usually leads to a more parsimonious model easier for interpretation. For illustration purpose, we use `threshold.1se` as the optimal tuning parameter and refit the model. For the refitted model, we can print the selected variables using `fit$sbp` or show the ROC curve by calling the `pROC::roc` function. 
 
-```{r slr}
-fit <- slr(X.adjusted, y, screen.method='wald', cluster.method ='spectral', 
-           response.type = 'binary', threshold = cv.out$threshold.1se,
-           positive.slope = TRUE)
-fit$bp
+```{r hiv_slr}
+fit <- slr(X.adjusted, y, covar = z, method ='PC', 
+           family = 'binomial', threshold = cv.out$threshold.1se)
+fit$sbp
 
-roc.slr <- pROC::roc(fit$glm.fit$y ~ fit$glm.fit$fitted.values)
+roc.slr <- pROC::roc(fit$glm$y ~ fit$glm$fitted.values)
 plot(roc.slr, print.auc=TRUE, main='slr')
 ```
 
-It is of interest to compare the model fit from `slr` to `selbal`. From the [vignette](https://htmlpreview.github.io/?https://github.com/malucalle/selbal/blob/master/vignettes/vignette.html) of the **selbal** package, we know that `selbal` selected a balance formed by *f_Erysipelotrichaceae_g_unclassified* and *f_Ruminococcaceae_g_Incertae_Sedis*. Therefore, we fit a logistic regression model with the predictor being the balance selected by `selbal` and plot its ROC curve. The AUC from `selbal` model fit is 0.722, which is lower than that of the `slr` model fit.      
+It is of interest to compare the model fit from `slr` to `selbal`. From the [vignette](https://htmlpreview.github.io/?https://github.com/malucalle/selbal/blob/master/vignettes/vignette.html) of the **selbal** package, we know that `selbal` selected a balance formed by *f_Erysipelotrichaceae_g_unclassified* and *f_Ruminococcaceae_g_Incertae_Sedis*. Therefore, we fit a logistic regression model with the predictor being the balance selected by `selbal` and plot its ROC curve. The AUC from `selbal` model fit is 0.786, which is slightly higher than that of the `slr` model fit.      
 
-```{r selbal}
+```{r hiv_selbal}
 train.selbal <- 
   data.frame(y=y,
-             x=log(X.adjusted[,colnames(X.adjusted)=="f_Erysipelotrichaceae_g_unclassified"]) -
-               log(X.adjusted[,colnames(X.adjusted)=="f_Ruminococcaceae_g_Incertae_Sedis"]))
-model.selbal <- glm(y ~ x, family="binomial",data=train.selbal)
+             x=(log(X.adjusted[,colnames(X.adjusted)=="f_Erysipelotrichaceae_g_unclassified"]) -
+               log(X.adjusted[,colnames(X.adjusted)=="f_Ruminococcaceae_g_Incertae_Sedis"]))/sqrt(2),
+             z = z)
+model.selbal <- glm(y ~ ., family="binomial",data=train.selbal)
+model.selbal
 train.selbal$predicted <- predict(model.selbal, type="response")
 roc.selbal <- pROC::roc(y ~ predicted, data = train.selbal)
 plot(roc.selbal, print.auc=TRUE, main='selbal')
 ```
+
+In terms of variable selection, `slr` identified 3 variables while `selbal` identified 2 variables. They both identified `f_Erysipelotrichaceae_g_unclassified` to be positively associated with HIV. However, the variable `f_Ruminococcaceae_g_Incertae_Sedis` was not identified by `slr`, although it is the most frequently selected taxon in `selbal.cv`.  
+
+# Inflammatory Bowel Disease and Microbiome
+
+`slr` is more suitable for high-dimensional data sets than `sebal`. To illustrate this, we use a data set on ulcerative colitis (UC), a type of inflammatory bowel disease, from [@franzosa2019gut]. Details on how the data was obtained and preprocessed are available [here](https://github.com/drjingma/LogRatioReg/). After preprocessing, the data set consists of 447 genera. There is a discovery set with 53 UC patients and 34 controls, and a validation set with 23 UC patients and 22 controls. We will perform model training on the discovery set and model validation on the validation set. Zeros are imputed prior to model fitting. 
+
+```{r ibd_input}
+data("UC")
+
+Y <- as.factor(UC$y[UC$cohort=='PRISM'])
+Y.test <- as.factor(UC$y[UC$cohort=='Validation'])
+Y <- as.factor(ifelse(Y == "Control", 0, 1))
+Y.test <- as.factor(ifelse(Y.test == "Control", 0, 1))
+
+## 0-Handling 
+X = as.matrix(selbal::cmultRepl2(UC[UC$cohort=='PRISM', 
+                                    !colnames(UC) %in% c('y','cohort')], 
+                                 zero.rep = "bayes"))
+X.test = as.matrix(selbal::cmultRepl2(UC[UC$cohort=='Validation',
+                                         !colnames(UC) %in% c('y','cohort')], 
+                                      zero.rep = "bayes"))
+
+set.seed(101)
+cv.out = cv.slr(x = X, y = Y, covar=NULL, method = "PC", 
+                 family = "binomial", zeta = 0, nfolds = 5, 
+                 type.measure = 'auc',
+                 trace.it = FALSE, plot = TRUE)
+
+fit = slr(x = X, y = Y, covar=NULL, method = "PC", 
+            family = "binomial", zeta = 0, 
+            threshold = cv.out$threshold.1se)
+
+# fit$sbp
+table(fit$sbp)
+```
+
+In this data set, `slr` identified 19 genera whose log ratio is predictive of the UC. When applied to the validation data set, `slr` achieves a test set AUC of 0.9. 
+
+```{r ibd_roc}
+test.data <- data.frame(y = Y.test, 
+                        fitted = predict.slr(fit,
+                                             X.test,
+                                             family = 'binomial'))
+roc.slr <- pROC::roc(y ~ fitted, data = test.data)
+plot(roc.slr, print.auc=TRUE, main='slr')
+```
+
+
+With a data set of this size, it is still feasible to run `slr` on a personal laptop within a few minutes. However, it can take `selbal` a few hours to finish model selection. For a complete comparison between `slr` and `selbal`, please see [our preprint](https://arxiv.org/abs/2304.00143). 
 
 # Session Info
 
 ```{r}
 sessionInfo()
 ```
+
+# References
 
 
