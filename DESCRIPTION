@@ -1,6 +1,6 @@
 Package: slr
 Title: Supervised Log Ratio 
-Version: 0.0.0.9000
+Version: 0.0.1
 Authors@R: 
     c(person(given="Jing", family="Ma", email="crystal.jing.ma@gmail.com", role = c("aut", "cre"),
            comment = c(ORCID = "0000-0001-6294-227X")),
@@ -12,13 +12,15 @@ Description: This package implements the supervised log ratio method for efficie
 License: MIT + file LICENSE
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
-RoxygenNote: 7.2.1
+RoxygenNote: 7.3.2
 URL: https://github.com/drjingma/slr
 BugReports: https://github.com/drjingma/slr/issues
 Imports: 
     pROC,
     stats,
-    utils
+    utils,
+    compositions,
+    survival
 Remotes: malucalle/selbal
 Suggests: 
     knitr,
