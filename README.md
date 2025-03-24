@@ -20,7 +20,7 @@ You can read the associated vignette in R directly if `build_vignettes=T`:
 
 `browseVignettes(package='slr')`
 
-You can also find the vignette [here](https://htmlpreview.github.io/?https://github.com/drjingma/slr/blob/master/vignettes/slr.html). In this vignette, you will see that `slr` compares favorably to `selbal` on an HIV data set. 
+You can also find the vignette [here](https://htmlpreview.github.io/?https://github.com/drjingma/slr/blob/master/vignettes/slr.html). In this vignette, you will see that `slr` performs comparably to `selbal` on an HIV data set and runs much faster than `selbal` on a UC data set where the number of features is over 400. 
 
 ## Note
 
@@ -29,4 +29,4 @@ You can also find the vignette [here](https://htmlpreview.github.io/?https://git
         1: In doTryCatch(return(expr), name, parentenv, handler) :
           zero-length arrow is of indeterminate angle and so skipped
 
-- Currently, `slr` works only for continuous or binary response variables. We plan to allow survival response in the near future. 
+- The current implementation of `slr` works for continuous, binary, or survival response variables. 
